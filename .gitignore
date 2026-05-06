@@ -1,0 +1,29 @@
+# ── Environnements virtuels ─────────────────────────────────────────────────
+venv/
+.venv/
+
+# ── Sessions Playwright (contiennent des cookies de connexion) ───────────────
+**/session.json
+
+# ── Variables d'environnement (clés API) ────────────────────────────────────
+.env
+.env.local
+
+# ── Fichiers de résultats générés ────────────────────────────────────────────
+**/results/
+admin_field_updater/results_*.csv
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ── macOS ────────────────────────────────────────────────────────────────────
+.DS_Store
+
+# ── Éditeurs ─────────────────────────────────────────────────────────────────
+.vscode/
+*.code-workspace
+.claude/

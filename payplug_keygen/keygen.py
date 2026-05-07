@@ -1,7 +1,9 @@
 import asyncio
+import base64
 import csv
 import json
 import os
+import requests
 import pandas as pd
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 from datetime import datetime
@@ -11,7 +13,7 @@ DATA_SOURCE  = "accounts.csv"
 SESSION_FILE = "session.json"
 KEYS_URL     = "https://portal.payplug.com/#/configuration/connection/keys"
 LOG_FILE     = f"results/results_payplug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE    = False
+TEST_MODE = False
 
 ACCOUNT_SWITCHER_TRIGGER = "[data-e2e='account-switcher']"
 
@@ -37,6 +39,46 @@ SEL_API_KEY_VALUE   = "[data-e2e='api-keys-modal-apiKey-value']"
 # Environnement (toggle Test / Live) — on clique sur le label wrappeur
 SEL_ENV_SWITCH      = "[data-e2e='api-keys-modal-switch'] label"
 # ───────────────────────────────────────────────────────────────────────────────
+
+
+TOKEN_URL = "https://api.payplug.com/oauth2/token"
+
+
+def get_oauth_token(client_id: str, client_secret: str) -> str:
+    credentials = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    r = requests.post(
+        TOKEN_URL,
+        headers={
+            "Content-Type":  "application/x-www-form-urlencoded",
+            "Authorization": f"Basic {credentials}",
+        },
+        data={
+            "grant_type": "client_credentials",
+            "audience":   "https://www.payplug.com",
+        },
+        timeout=10,
+    )
+    r.raise_for_status()
+    return r.json()["access_token"]
+
+
+def decode_jwt_company_ref(token: str) -> tuple[str, dict]:
+    """Décode le payload JWT et retourne (company_ref, claims_complets)."""
+    try:
+        payload_b64 = token.split(".")[1]
+        padding     = "=" * (4 - len(payload_b64) % 4)
+        claims      = json.loads(base64.b64decode(payload_b64 + padding).decode())
+    except Exception as e:
+        return f"DECODE_ERROR: {e}", {}
+
+    company_ref = (
+        claims.get("company_ref")
+        or claims.get("companyRef")
+        or claims.get("company_id")
+        or claims.get("companyId")
+        or claims.get("sub", "")
+    )
+    return str(company_ref), claims
 
 
 def ask_config() -> tuple[str, str]:
@@ -93,6 +135,8 @@ async def generate_key(page, account_id: str, key_name: str, account_name: str,
         "client_id":     "",
         "client_secret": "",
         "api_key":       "",
+        "company_ref":   "",
+        "jwt_token":     "",
         "status":        "",
         "message":       "",
     }
@@ -148,6 +192,21 @@ async def generate_key(page, account_id: str, key_name: str, account_name: str,
             result["client_id"]     = client_id
             result["client_secret"] = client_secret
             print(f"  ✓ OAuth2 — Client ID : {client_id[:8]}...")
+
+            # ── JWT decode → company_ref ───────────────────────────────────────
+            try:
+                token       = get_oauth_token(client_id, client_secret)
+                company_ref, claims = decode_jwt_company_ref(token)
+                result["company_ref"] = company_ref
+                result["jwt_token"]   = token
+                print(f"  ✓ JWT — company_ref : {company_ref}")
+                extra = {k: v for k, v in claims.items()
+                         if k not in ("iss", "aud", "exp", "iat", "jti", "nbf")}
+                if extra:
+                    print(f"  ℹ Claims : {extra}")
+            except Exception as e:
+                result["company_ref"] = f"JWT_ERROR: {str(e)[:80]}"
+                print(f"  ⚠ JWT non décodé : {e}")
 
         else:  # api_key
             await page.wait_for_selector(SEL_API_KEY_VALUE, timeout=10000)
@@ -218,6 +277,7 @@ async def main():
             "account_id", "account_name", "key_name",
             "key_type", "environment",
             "client_id", "client_secret", "api_key",
+            "company_ref", "jwt_token",
             "status", "message",
         ])
         writer.writeheader()

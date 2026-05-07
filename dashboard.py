@@ -2,6 +2,7 @@ from flask import Flask, render_template, jsonify, request
 import subprocess
 import sys
 import os
+import re
 import csv
 import threading
 import uuid
@@ -17,73 +18,77 @@ BOTS = [
         "id":          "admin_field_updater",
         "name":        "Admin Field Updater",
         "subtitle":    "Automatisation navigateur",
-        "description": "Met à jour des valeurs sur des pages web en boucle, piloté par data.csv via Chromium.",
+        "description": "Mise à jour de champs web en boucle via Chromium.",
         "color":       "primary",
         "icon":        "bi-browser-chrome",
         "scripts": [
             {
                 "file":        "login.py",
                 "name":        "Sauvegarder la session",
-                "description": "Ouvre un navigateur pour connexion manuelle. À lancer une seule fois — relancer si la session expire.",
-                "warning":     "Nécessite une interaction manuelle dans Chromium. Préférer le terminal si la fenêtre n'apparaît pas.",
+                "description": "Sauvegarde les cookies de session.",
+                "warning":     "Interaction manuelle requise dans Chromium.",
                 "inputs":      [],
                 "outputs":     ["session.json"],
             },
             {
                 "file":        "admin_field_updater.py",
                 "name":        "Bot Updater",
-                "description": "Lit data.csv et met à jour chaque URL en boucle (clic Éditer → saisie valeur → clic Enregistrer).",
+                "description": "Lit data.csv et met à jour chaque URL en boucle.",
                 "inputs":      ["data.csv (colonnes : id, url, value)", "session.json"],
                 "outputs":     ["results_XXXXXX.csv"],
             },
         ],
-        "results_globs": ["results_*.csv"],
+        "results_globs":   ["results_*.csv"],
+        "editable_csvs":   [{"file": "data.csv", "label": "data.csv — urls à traiter"}],
+        "test_mode_script": "admin_field_updater.py",
     },
     {
         "id":          "solvimon_api",
         "name":        "Solvimon API",
         "subtitle":    "Subscriptions en masse",
-        "description": "Duplique une subscription source et l'assigne à chaque customer via l'API REST Solvimon (sandbox ou prod).",
+        "description": "Duplication de subscriptions en masse via l'API Solvimon.",
         "color":       "success",
         "icon":        "bi-lightning-charge-fill",
         "scripts": [
             {
                 "file":        "inspect_subscription.py",
                 "name":        "Inspecter la Subscription",
-                "description": "Liste les subscriptions disponibles et affiche les champs de la subscription source. Étape de vérification avant le bulk.",
+                "description": "Vérifie la connexion API et inspecte la subscription source.",
                 "inputs":      ["API_KEY + SUB_ID configurés dans le fichier"],
                 "outputs":     [],
             },
             {
                 "file":        "solvimon_bulk_subscriptions.py",
                 "name":        "Créer les Subscriptions",
-                "description": "Pour chaque customer : POST /copy (duplication exacte) → PATCH customer_id + status ACTIVE.",
+                "description": "POST /copy → PATCH customer_id + ACTIVE pour chaque ligne.",
                 "inputs":      ["customers.csv (colonne : customer_id)"],
                 "outputs":     ["results/results_solvimon_XXXXXX.csv"],
             },
         ],
-        "results_globs": ["results/results_solvimon_*.csv"],
+        "results_globs":    ["results/results_solvimon_*.csv"],
+        "editable_csvs":    [{"file": "customers.csv", "label": "customers.csv — customer IDs"}],
+        "test_mode_script": "solvimon_bulk_subscriptions.py",
     },
     {
         "id":          "payplug_keygen",
         "name":        "Portail PayPlug - API Key Gen",
         "subtitle":    "Gestion des clés API",
-        "description": "Génère des clés API PayPlug par compte via le portail, puis vérifie leur association via OAuth2 + planners.",
+        "description": "Génération et vérification de clés API PayPlug par compte.",
         "color":       "warning",
         "icon":        "bi-key-fill",
         "scripts": [
             {
                 "file":        "login.py",
                 "name":        "Sauvegarder la session PayPlug",
-                "description": "Ouvre le portail PayPlug pour connexion manuelle. À lancer une seule fois.",
-                "warning":     "Nécessite une interaction manuelle dans Chromium. Préférer le terminal si la fenêtre n'apparaît pas.",
+                "description": "Sauvegarde les cookies de session PayPlug.",
+                "warning":     "Interaction manuelle requise dans Chromium.",
                 "inputs":      [],
                 "outputs":     ["session.json"],
             },
             {
                 "file":        "keygen.py",
                 "name":        "Générer les Clés API",
-                "description": "Pour chaque compte : switch de compte → Générer une nouvelle clé → saisie du nom → capture credentials.",
+                "description": "Switch compte → génère clé OAuth2 → JWT → company_ref.",
                 "inputs":      ["accounts.csv (account_id, account_name, key_name)", "session.json"],
                 "outputs":     ["results/results_payplug_XXXXXX.csv"],
                 "params": [
@@ -107,15 +112,10 @@ BOTS = [
                     },
                 ],
             },
-            {
-                "file":        "verify.py",
-                "name":        "Vérifier les Clés",
-                "description": "Token OAuth2 → création d'un planner test sur le companyRef → 201 = clé OK, 403 = mauvais compte.",
-                "inputs":      ["results/results_payplug_*.csv (dernier fichier auto-détecté)"],
-                "outputs":     ["results/verify_XXXXXX.csv"],
-            },
         ],
-        "results_globs": ["results/results_payplug_*.csv", "results/verify_*.csv"],
+        "results_globs":    ["results/results_payplug_*.csv"],
+        "editable_csvs":    [{"file": "accounts.csv", "label": "accounts.csv — comptes PayPlug"}],
+        "test_mode_script": "keygen.py",
     },
 ]
 
@@ -174,6 +174,46 @@ def get_output(job_id):
         "done":  job.get("done", False),
         "rc":    job.get("rc"),
     })
+
+
+@app.route("/api/testmode/<bot_id>")
+def get_testmode(bot_id):
+    bot = next((b for b in BOTS if b["id"] == bot_id), None)
+    if not bot or not bot.get("test_mode_script"):
+        return jsonify({"test_mode": None})
+    path    = BASE_DIR / bot_id / bot["test_mode_script"]
+    content = path.read_text(encoding="utf-8")
+    match   = re.search(r'TEST_MODE\s*=\s*(True|False)', content)
+    return jsonify({"test_mode": match.group(1) == "True" if match else None})
+
+
+@app.route("/api/testmode/<bot_id>", methods=["POST"])
+def set_testmode(bot_id):
+    bot = next((b for b in BOTS if b["id"] == bot_id), None)
+    if not bot or not bot.get("test_mode_script"):
+        return jsonify({"ok": False})
+    value   = request.json.get("test_mode", True)
+    path    = BASE_DIR / bot_id / bot["test_mode_script"]
+    content = path.read_text(encoding="utf-8")
+    new     = re.sub(r'TEST_MODE\s*=\s*(True|False)', f'TEST_MODE = {str(value)}', content)
+    path.write_text(new, encoding="utf-8")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/csv/<bot_id>/<filename>")
+def read_csv(bot_id, filename):
+    path = BASE_DIR / bot_id / filename
+    if not path.exists():
+        return jsonify({"content": ""}), 200
+    return jsonify({"content": path.read_text(encoding="utf-8")})
+
+
+@app.route("/api/csv/<bot_id>/<filename>", methods=["POST"])
+def write_csv(bot_id, filename):
+    content = request.json.get("content", "")
+    path    = BASE_DIR / bot_id / filename
+    path.write_text(content, encoding="utf-8")
+    return jsonify({"ok": True})
 
 
 @app.route("/api/results/<bot_id>")

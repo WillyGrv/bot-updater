@@ -23,7 +23,7 @@ Suite de 3 bots d'automatisation + dashboard web local.
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install playwright pandas requests flask
+pip install -r requirements.txt
 playwright install chromium
 ```
 

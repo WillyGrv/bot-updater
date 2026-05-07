@@ -41,14 +41,21 @@
                 <div class="small opacity-75">{{ bot.subtitle }}</div>
               </div>
             </div>
-            <span class="stat-pill">{{ bot.scripts | length }} scripts</span>
+            <div class="d-flex align-items-center gap-2">
+              <span class="stat-pill">{{ bot.scripts | length }} scripts</span>
+              {% if bot.test_mode_script %}
+              <div class="mode-toggle" id="toggle_{{ bot.id }}">
+                <button id="btn_test_{{ bot.id }}" onclick="setTestMode('{{ bot.id }}', true)">TEST</button>
+                <button id="btn_live_{{ bot.id }}" onclick="setTestMode('{{ bot.id }}', false)">LIVE</button>
+              </div>
+              {% endif %}
+            </div>
           </div>
         </div>
 
         <!-- Body -->
         <div class="card-body" style="background:#fafbfc;">
-          <p class="text-muted mb-3" style="font-size:.82rem;">{{ bot.description }}</p>
-          <div class="section-label">Scripts disponibles</div>
+          <div class="section-label">Scripts</div>
 
           {% for script in bot.scripts %}
           <div class="script-item">
@@ -94,6 +101,25 @@
           </div>
           {% endfor %}
 
+          {% if bot.editable_csvs %}
+          <div class="section-label mt-3 mb-2">Fichiers CSV</div>
+          {% for csv in bot.editable_csvs %}
+          <div class="script-item">
+            <div class="script-content">
+              <div class="script-name">{{ csv.label }}</div>
+              <div class="script-file">{{ csv.file }}</div>
+              <div class="script-desc">Éditer directement le contenu — copier-coller depuis Excel ou texte brut.</div>
+            </div>
+            <div class="script-action">
+              <button class="btn btn-outline-{{ bot.color }} btn-run"
+                      onclick="openCsvEditor('{{ bot.id }}', '{{ csv.file }}', '{{ csv.label }}')">
+                <i class="bi bi-pencil-fill me-1"></i>Éditer
+              </button>
+            </div>
+          </div>
+          {% endfor %}
+          {% endif %}
+
         </div>
       </div>
     </div>
@@ -131,6 +157,44 @@
     </div>
   </div>
 
+</div>
+
+<!-- CSV Editor Modal -->
+<div class="modal fade" id="csvModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content" style="border-radius:12px; overflow:hidden; border:none;">
+      <div class="modal-header-dark d-flex align-items-center gap-3">
+        <div style="background:rgba(255,255,255,.1); border-radius:8px; padding:6px 10px;">
+          <i class="bi bi-file-earmark-spreadsheet text-white fs-5"></i>
+        </div>
+        <div class="flex-grow-1">
+          <div class="text-white fw-semibold" id="csvModalTitle">—</div>
+          <div class="text-white opacity-50" style="font-size:.78rem;" id="csvModalSubtitle"></div>
+        </div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div class="px-3 py-2" style="background:#f8fafc; border-bottom:1px solid #e2e8f0; font-size:.75rem; color:#64748b;">
+          <i class="bi bi-info-circle me-1"></i>
+          Colle le contenu CSV directement (depuis Excel : copier les cellules puis coller). La première ligne doit contenir les en-têtes.
+        </div>
+        <textarea id="csvTextarea"
+                  class="w-100 border-0 p-3"
+                  style="min-height:400px; font-family:'SF Mono','Fira Code',monospace; font-size:.82rem; resize:vertical; outline:none; line-height:1.6;"
+                  placeholder="id,url,value&#10;001,https://monsite.com/page/1,123&#10;002,https://monsite.com/page/2,456"
+                  spellcheck="false"></textarea>
+      </div>
+      <div class="modal-footer border-0 bg-white px-4 py-3 d-flex justify-content-between align-items-center">
+        <small class="text-muted" id="csvLineCount">0 lignes</small>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Annuler</button>
+          <button type="button" class="btn btn-dark btn-sm px-4" onclick="saveCsv()">
+            <i class="bi bi-floppy-fill me-1"></i>Sauvegarder
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Params Modal -->
@@ -197,9 +261,11 @@
 <script>
   const outputModal = new bootstrap.Modal(document.getElementById('outputModal'));
   const paramsModal = new bootstrap.Modal(document.getElementById('paramsModal'));
+  const csvModal    = new bootstrap.Modal(document.getElementById('csvModal'));
   let pollInterval  = null;
   let activeBot     = null;
   let pendingRun    = null;
+  let activeCsv     = { botId: null, file: null };
 
   // Clock
   function updateClock() {
@@ -208,6 +274,80 @@
   }
   setInterval(updateClock, 1000);
   updateClock();
+
+  // ── Test / Live toggle ─────────────────────────────────────────────────────
+  function loadTestMode(botId) {
+    fetch(`/api/testmode/${botId}`)
+      .then(r => r.json())
+      .then(data => applyTestMode(botId, data.test_mode));
+  }
+
+  function applyTestMode(botId, isTest) {
+    const btnTest = document.getElementById(`btn_test_${botId}`);
+    const btnLive = document.getElementById(`btn_live_${botId}`);
+    if (!btnTest) return;
+    btnTest.className = isTest  ? 'active-test' : '';
+    btnLive.className = !isTest ? 'active-live'  : '';
+  }
+
+  function setTestMode(botId, isTest) {
+    fetch(`/api/testmode/${botId}`, {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ test_mode: isTest }),
+    })
+    .then(r => r.json())
+    .then(() => applyTestMode(botId, isTest));
+  }
+
+  // ── CSV Editor ─────────────────────────────────────────────────────────────
+  function openCsvEditor(botId, file, label) {
+    activeCsv = { botId, file };
+    document.getElementById('csvModalTitle').textContent = label;
+    document.getElementById('csvModalSubtitle').textContent = `${botId} / ${file}`;
+    document.getElementById('csvTextarea').value = 'Chargement...';
+    document.getElementById('csvLineCount').textContent = '';
+    csvModal.show();
+
+    fetch(`/api/csv/${botId}/${file}`)
+      .then(r => r.json())
+      .then(data => {
+        const ta = document.getElementById('csvTextarea');
+        ta.value = data.content;
+        updateCsvLineCount(ta);
+      });
+  }
+
+  function updateCsvLineCount(ta) {
+    const lines = ta.value.split('\n').filter(l => l.trim()).length;
+    document.getElementById('csvLineCount').textContent =
+      `${lines} ligne${lines > 1 ? 's' : ''} (dont 1 en-tête)`;
+  }
+
+  document.getElementById('csvTextarea').addEventListener('input', function() {
+    updateCsvLineCount(this);
+  });
+
+  function saveCsv() {
+    const content = document.getElementById('csvTextarea').value;
+    fetch(`/api/csv/${activeCsv.botId}/${activeCsv.file}`, {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ content }),
+    })
+    .then(r => r.json())
+    .then(() => {
+      csvModal.hide();
+      // Flash de confirmation visuel
+      const btn = document.querySelector(`[onclick="openCsvEditor('${activeCsv.botId}', '${activeCsv.file}', '${document.getElementById('csvModalTitle').textContent}')"]`);
+      if (btn) {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Sauvegardé';
+        btn.classList.add('btn-success');
+        setTimeout(() => { btn.innerHTML = orig; btn.classList.remove('btn-success'); }, 2000);
+      }
+    });
+  }
 
   // ── Gestion du bouton Lancer ────────────────────────────────────────────────
   function handleRun(btn) {
@@ -401,6 +541,11 @@
   window.addEventListener('load', () => {
     const firstTab = document.querySelector('#resultsTabs .nav-link[data-bot-id]');
     if (firstTab) loadResults(firstTab.dataset.botId, firstTab);
+    // Charger l'état TEST_MODE de chaque bot
+    document.querySelectorAll('[id^="toggle_"]').forEach(el => {
+      const botId = el.id.replace('toggle_', '');
+      loadTestMode(botId);
+    });
   });
 </script>
 </body>

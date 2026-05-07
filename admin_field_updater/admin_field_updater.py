@@ -1,5 +1,6 @@
 import asyncio
 import csv
+import json
 import pandas as pd
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 from datetime import datetime
@@ -12,8 +13,19 @@ VALUE_INPUT  = "input[name='master_company_id']"
 SAVE_BUTTON  = "input[type='submit'].main-submit"
 
 LOG_FILE     = f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE    = True   # ← passe à False quand tout est validé
+TEST_MODE = False   # ← passe à False quand tout est validé
 # ──────────────────────────────────────────────────────────────────────────────
+
+
+def load_session(path: str) -> dict:
+    """Charge la session et s'assure que toutes les valeurs localStorage sont des strings."""
+    with open(path, encoding="utf-8") as f:
+        session = json.load(f)
+    for origin in session.get("origins", []):
+        for item in origin.get("localStorage", []):
+            if not isinstance(item.get("value"), str):
+                item["value"] = json.dumps(item["value"])
+    return session
 
 
 async def update_page(page, url: str, value: str, row_id: str) -> dict:
@@ -57,6 +69,7 @@ async def update_page(page, url: str, value: str, row_id: str) -> dict:
 async def main():
     print("Chargement du CSV...")
     df = pd.read_csv(DATA_SOURCE, dtype=str)
+    df.columns = df.columns.str.strip().str.lower()
 
     if TEST_MODE:
         df = df.head(1)
@@ -68,7 +81,7 @@ async def main():
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=not TEST_MODE)
-        context = await browser.new_context(storage_state="session.json")
+        context = await browser.new_context(storage_state=load_session("session.json"))
         page = await context.new_page()
 
         for _, row in df.iterrows():

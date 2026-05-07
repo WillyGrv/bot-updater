@@ -12,9 +12,23 @@ EDIT_BUTTON  = "#change"
 VALUE_INPUT  = "input[name='master_company_id']"
 SAVE_BUTTON  = "input[type='submit'].main-submit"
 
-LOG_FILE     = f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE = False   # ← passe à False quand tout est validé
+LOG_FILE          = f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+TEST_MODE         = False
+DEFAULT_MASTER_VALUE = ""
 # ──────────────────────────────────────────────────────────────────────────────
+
+
+def ask_config() -> str:
+    try:
+        value = input("Valeur Compte Master à appliquer : ").strip()
+        if not value:
+            raise ValueError("valeur vide")
+        print(f"\n→ Valeur : {value}")
+        print("─────────────────────────────────────────────\n")
+        return value
+    except (EOFError, ValueError):
+        print(f"Mode dashboard — valeur par défaut : '{DEFAULT_MASTER_VALUE}'\n")
+        return DEFAULT_MASTER_VALUE
 
 
 def load_session(path: str) -> dict:
@@ -28,8 +42,9 @@ def load_session(path: str) -> dict:
     return session
 
 
-async def update_page(page, url: str, value: str, row_id: str) -> dict:
-    result = {"id": row_id, "url": url, "value": value, "status": "", "message": ""}
+async def update_page(page, url: str, master_value: str, row_id: str) -> dict:
+    value = master_value
+    result = {"id": row_id, "url": url, "master_value": master_value, "status": "", "message": ""}
     try:
         # 1. Ouvrir le lien
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
@@ -67,6 +82,8 @@ async def update_page(page, url: str, value: str, row_id: str) -> dict:
 
 
 async def main():
+    master_value = ask_config()
+
     print("Chargement du CSV...")
     df = pd.read_csv(DATA_SOURCE, dtype=str)
     df.columns = df.columns.str.strip().str.lower()
@@ -89,7 +106,7 @@ async def main():
             result = await update_page(
                 page,
                 url=row["url"],
-                value=row["value"],
+                master_value=master_value,
                 row_id=row["id"],
             )
             results.append(result)
@@ -100,7 +117,7 @@ async def main():
 
     # Sauvegarde du log
     with open(LOG_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["id", "url", "value", "status", "message"])
+        writer = csv.DictWriter(f, fieldnames=["id", "url", "master_value", "status", "message"])
         writer.writeheader()
         writer.writerows(results)
 

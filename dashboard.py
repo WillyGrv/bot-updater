@@ -33,9 +33,17 @@ BOTS = [
             {
                 "file":        "admin_field_updater.py",
                 "name":        "Bot Updater",
-                "description": "Lit data.csv et met à jour chaque URL en boucle.",
-                "inputs":      ["data.csv (colonnes : id, url, value)", "session.json"],
+                "description": "Lit data.csv et applique la valeur saisie sur chaque URL.",
+                "inputs":      ["data.csv (colonnes : id, url)", "session.json"],
                 "outputs":     ["results_XXXXXX.csv"],
+                "params": [
+                    {
+                        "id":          "master_value",
+                        "label":       "Valeur Compte Master",
+                        "type":        "text",
+                        "placeholder": "ex: 12345",
+                    },
+                ],
             },
         ],
         "results_globs":   ["results_*.csv"],

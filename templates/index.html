@@ -372,13 +372,19 @@
     params.forEach(p => {
       html += `<div class="mb-4">
         <div class="fw-semibold mb-2" style="font-size:.88rem;">${p.label}</div>`;
-      p.options.forEach((opt, i) => {
-        const checked = opt.value === p.default ? 'checked' : '';
-        html += `<div class="form-check mb-1">
-          <input class="form-check-input" type="radio" name="param_${p.id}" id="opt_${p.id}_${i}" value="${opt.value}" ${checked}>
-          <label class="form-check-label" for="opt_${p.id}_${i}" style="font-size:.85rem;">${opt.label}</label>
-        </div>`;
-      });
+      if (p.type === 'text') {
+        html += `<input class="form-control" type="text" name="param_${p.id}"
+                        placeholder="${p.placeholder || ''}" autocomplete="off"
+                        style="font-size:.88rem;">`;
+      } else {
+        (p.options || []).forEach((opt, i) => {
+          const checked = opt.value === p.default ? 'checked' : '';
+          html += `<div class="form-check mb-1">
+            <input class="form-check-input" type="radio" name="param_${p.id}" id="opt_${p.id}_${i}" value="${opt.value}" ${checked}>
+            <label class="form-check-label" for="opt_${p.id}_${i}" style="font-size:.85rem;">${opt.label}</label>
+          </div>`;
+        });
+      }
       html += `</div>`;
     });
     document.getElementById('paramsBody').innerHTML = html;
@@ -388,6 +394,10 @@
   function confirmAndRun() {
     const { botId, scriptFile, scriptName, params } = pendingRun;
     const lines = params.map(p => {
+      if (p.type === 'text') {
+        const input = document.querySelector(`input[name="param_${p.id}"]`);
+        return input ? input.value.trim() : '';
+      }
       const checked = document.querySelector(`input[name="param_${p.id}"]:checked`);
       return (checked ? checked.value : p.default);
     });

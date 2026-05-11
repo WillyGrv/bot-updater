@@ -1,23 +1,68 @@
-"""
-Étape préalable : inspecter la subscription source.
-Lance ce script UNE FOIS pour voir les champs exacts retournés par l'API,
-puis ajuste le payload dans solvimon_bulk_subscriptions.py si nécessaire.
-"""
 import os
-import requests
+import sys
 import json
+import requests
 
-API_KEY  = os.getenv("SOLVIMON_API_KEY", "YOUR_API_KEY_HERE")
-SUB_ID   = os.getenv("SOLVIMON_SUB_ID",  "YOUR_SUBSCRIPTION_ID_HERE")
-BASE_URL = "https://test.api.solvimon.com/v1"
+ENVS = {
+    "prod":    "https://payplug.solvimon.com/v1",
+    "sandbox": "https://test.api.solvimon.com/v1",
+}
+
+API_KEY = os.getenv("SOLVIMON_API_KEY", "YOUR_API_KEY_HERE")
 
 
+def ask_config():
+    if sys.stdin.isatty():
+        print("─────────────────────────────────────────────")
+        print("VÉRIFICATION SUBSCRIPTION")
+        print("─────────────────────────────────────────────")
+        env = input("  Environnement [prod/sandbox] : ").strip().lower()
+        sub_id = input("  Subscription ID : ").strip()
+        print("─────────────────────────────────────────────\n")
+    else:
+        try:
+            env    = input().strip().lower()
+            sub_id = input().strip()
+        except EOFError:
+            print("⚠ Paramètres manquants.")
+            sys.exit(1)
 
-# 2. Récupérer une subscription précise (une fois le bon ID trouvé ci-dessus)
-print("\n=== DÉTAIL DE LA SUBSCRIPTION SOURCE ===")
-r = requests.get(
-    f"{BASE_URL}/pricing-plan-subscriptions/{SUB_ID}",
-    headers={"X-API-KEY": API_KEY},
-)
-print(f"Status HTTP : {r.status_code}")
-print(json.dumps(r.json(), indent=2))
+    base_url = ENVS.get(env)
+    if not base_url:
+        print(f"⚠ Environnement inconnu : '{env}' — utilise 'prod' ou 'sandbox'.")
+        sys.exit(1)
+
+    print(f"  Environnement : {env.upper()} → {base_url}")
+    print(f"  Subscription  : {sub_id}\n")
+    return base_url, sub_id
+
+
+def main():
+    base_url, sub_id = ask_config()
+
+    print("─── Appel API ────────────────────────────────")
+    r = requests.get(
+        f"{base_url}/pricing-plan-subscriptions/{sub_id}",
+        headers={"X-API-KEY": API_KEY},
+    )
+    print(f"Status HTTP : {r.status_code}")
+
+    if r.status_code == 200:
+        data = r.json()
+        print("\n✓ Subscription trouvée :\n")
+        for key in ("id", "status", "customer_id", "pricing_plan_id", "reference", "start_date", "end_date"):
+            val = data.get(key, "—")
+            print(f"  {key:<22} {val}")
+        print(f"\n  Réponse complète :")
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+    else:
+        print(f"\n✗ Subscription introuvable ou erreur API :")
+        try:
+            print(json.dumps(r.json(), indent=2, ensure_ascii=False))
+        except Exception:
+            print(r.text[:500])
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

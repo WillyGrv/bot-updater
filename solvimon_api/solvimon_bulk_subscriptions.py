@@ -1,18 +1,20 @@
 import os
+import sys
 import requests
 import csv
 import uuid
 import time
+import json
 import pandas as pd
 from datetime import datetime
 
 # ── CONFIGURATION ──────────────────────────────────────────────────────────────
 API_KEY = os.getenv("SOLVIMON_API_KEY", "YOUR_API_KEY_HERE")
 
-BASE_URL = "https://test.api.solvimon.com/v1"
-# Production : BASE_URL = "https://api.solvimon.com/v1"
-
-SOURCE_SUBSCRIPTION_ID = os.getenv("SOLVIMON_SUB_ID", "YOUR_SUBSCRIPTION_ID_HERE")
+ENVS = {
+    "prod":    "https://payplug.solvimon.com/v1",
+    "sandbox": "https://test.api.solvimon.com/v1",
+}
 
 DATA_SOURCE   = "customers.csv"
 LOG_FILE      = f"results/results_solvimon_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
@@ -20,19 +22,58 @@ TEST_MODE     = False
 DELAY_BETWEEN = 0.5
 # ───────────────────────────────────────────────────────────────────────────────
 
-HEADERS = {
-    "Content-Type": "application/json",
-    "X-API-KEY": API_KEY,
-}
+
+def ask_config():
+    if sys.stdin.isatty():
+        print("─────────────────────────────────────────────")
+        print("CONFIGURATION")
+        print("─────────────────────────────────────────────")
+        env    = input("  Environnement [prod/sandbox] : ").strip().lower()
+        sub_id = input("  Subscription ID source : ").strip()
+        print("─────────────────────────────────────────────\n")
+    else:
+        try:
+            env    = input().strip().lower()
+            sub_id = input().strip()
+        except EOFError:
+            print("⚠ Paramètres manquants.")
+            sys.exit(1)
+
+    base_url = ENVS.get(env)
+    if not base_url:
+        print(f"⚠ Environnement inconnu : '{env}' — utilise 'prod' ou 'sandbox'.")
+        sys.exit(1)
+
+    print(f"  Environnement : {env.upper()} → {base_url}")
+    print(f"  Subscription  : {sub_id}\n")
+    return base_url, sub_id
 
 
-def copy_subscription(source_id: str, customer_id: str) -> str:
-    """Étape 1 — Copie exacte de la subscription source. Retourne le nouvel ID."""
-    url = f"{BASE_URL}/pricing-plan-subscriptions/{source_id}/copy"
+def verify_subscription(base_url: str, sub_id: str, headers: dict) -> bool:
+    print("─── Vérification de la subscription source ───")
+    r = requests.get(
+        f"{base_url}/pricing-plan-subscriptions/{sub_id}",
+        headers=headers,
+    )
+    if r.status_code == 200:
+        data = r.json()
+        print(f"  ✓ Trouvée — status: {data.get('status', '?')} | customer: {data.get('customer_id', '?')}")
+        return True
+    else:
+        print(f"  ✗ Subscription introuvable (HTTP {r.status_code})")
+        try:
+            print(f"    {json.dumps(r.json(), ensure_ascii=False)}")
+        except Exception:
+            print(f"    {r.text[:200]}")
+        return False
+
+
+def copy_subscription(base_url: str, source_id: str, customer_id: str, headers: dict) -> str:
+    url = f"{base_url}/pricing-plan-subscriptions/{source_id}/copy"
     r = requests.post(
         url,
         json={"reference": f"BESSON-{customer_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"},
-        headers={**HEADERS, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
     r.raise_for_status()
     new_id = r.json()["id"]
@@ -40,16 +81,27 @@ def copy_subscription(source_id: str, customer_id: str) -> str:
     return new_id
 
 
-def assign_customer(subscription_id: str, customer_id: str) -> dict:
-    """Étape 2 — Assigne la copie au customer cible via PATCH."""
-    url = f"{BASE_URL}/pricing-plan-subscriptions/{subscription_id}"
-    r = requests.patch(url, json={"customer_id": customer_id, "status": "ACTIVE"}, headers=HEADERS)
+def assign_customer(base_url: str, subscription_id: str, customer_id: str, headers: dict) -> dict:
+    url = f"{base_url}/pricing-plan-subscriptions/{subscription_id}"
+    r = requests.patch(url, json={"customer_id": customer_id, "status": "ACTIVE"}, headers=headers)
     r.raise_for_status()
     print(f"  ✓ Customer assigné : {customer_id}")
     return r.json()
 
 
 def main():
+    base_url, source_sub_id = ask_config()
+
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-KEY": API_KEY,
+    }
+
+    if not verify_subscription(base_url, source_sub_id, headers):
+        print("\n⚠ Arrêt — subscription source invalide.")
+        sys.exit(1)
+
+    print()
     print("Chargement du CSV customers...")
     df = pd.read_csv(DATA_SOURCE, dtype=str)
 
@@ -73,8 +125,8 @@ def main():
         }
 
         try:
-            new_id  = copy_subscription(SOURCE_SUBSCRIPTION_ID, customer_id)
-            final   = assign_customer(new_id, customer_id)
+            new_id = copy_subscription(base_url, source_sub_id, customer_id, headers)
+            final  = assign_customer(base_url, new_id, customer_id, headers)
             result["status"]          = "OK"
             result["subscription_id"] = final.get("id", new_id)
 

@@ -115,17 +115,51 @@ BOTS = [
         "scripts": [
             {
                 "file":        "inspect_subscription.py",
-                "name":        "Inspecter la Subscription",
-                "description": "Vérifie la connexion API et inspecte la subscription source.",
-                "inputs":      ["API_KEY + SUB_ID configurés dans le fichier"],
+                "name":        "1 — Vérifier la Subscription",
+                "description": "Vérifie que la subscription source existe avant de lancer la duplication.",
+                "inputs":      [],
                 "outputs":     [],
+                "params": [
+                    {
+                        "id":      "env",
+                        "label":   "Environnement",
+                        "options": [
+                            {"value": "prod",    "label": "Production — payplug.solvimon.com"},
+                            {"value": "sandbox", "label": "Sandbox — test.api.solvimon.com"},
+                        ],
+                        "default": "prod",
+                    },
+                    {
+                        "id":          "sub_id",
+                        "type":        "text",
+                        "label":       "Subscription ID source",
+                        "placeholder": "ex: sub_xxxxxxxxxxxxxxxx",
+                    },
+                ],
             },
             {
                 "file":        "solvimon_bulk_subscriptions.py",
-                "name":        "Créer les Subscriptions",
-                "description": "POST /copy → PATCH customer_id + ACTIVE pour chaque ligne.",
+                "name":        "2 — Créer les Subscriptions",
+                "description": "POST /copy → PATCH customer_id + ACTIVE pour chaque ligne du CSV.",
                 "inputs":      ["customers.csv (colonne : customer_id)"],
                 "outputs":     ["results/results_solvimon_XXXXXX.csv"],
+                "params": [
+                    {
+                        "id":      "env",
+                        "label":   "Environnement",
+                        "options": [
+                            {"value": "prod",    "label": "Production — payplug.solvimon.com"},
+                            {"value": "sandbox", "label": "Sandbox — test.api.solvimon.com"},
+                        ],
+                        "default": "prod",
+                    },
+                    {
+                        "id":          "sub_id",
+                        "type":        "text",
+                        "label":       "Subscription ID source",
+                        "placeholder": "ex: sub_xxxxxxxxxxxxxxxx",
+                    },
+                ],
             },
         ],
         "results_globs":    ["results/results_solvimon_*.csv"],

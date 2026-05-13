@@ -1,38 +1,160 @@
 import asyncio
 import csv
 import json
+import sys
 import pandas as pd
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 from datetime import datetime
 
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
 DATA_SOURCE = "data.csv"
+EDIT_BUTTON = "#change"
+SAVE_BUTTON = "input[type='submit'].main-submit"
+LOG_FILE    = f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+TEST_MODE = False
 
-EDIT_BUTTON  = "#change"
-VALUE_INPUT  = "input[name='master_company_id']"
-SAVE_BUTTON  = "input[type='submit'].main-submit"
+# ── Champs disponibles ─────────────────────────────────────────────────────────
+# value_mode: "fixed"   → même valeur pour toutes les lignes (saisie au démarrage)
+#             "dynamic" → valeur lue depuis une colonne du CSV d'entrée
+AVAILABLE_FIELDS = {
+    "master_company_id": {
+        "label":      "Compte Master",
+        "selector":   "input[name='master_company_id']",
+        "field_type": "text",
+        "value_mode": "fixed",
+        "csv_column": None,
+    },
+    "account_manager": {
+        "label":      "Account Manager",
+        "selector":   "select[name='id_account_manager']",
+        "field_type": "select",
+        "value_mode": "fixed",
+        "csv_column": None,
+        "options": [
+            {"value": "",      "label": "Aucun"},
+            {"value": "-1",    "label": "Pas d'account manager"},
+            {"value": "110",   "label": "Audrey Alia"},
+            {"value": "160",   "label": "Audrey Galy"},
+            {"value": "18",    "label": "Antoine Grimaud"},
+            {"value": "10388", "label": "Anaïs Nesse"},
+            {"value": "10594", "label": "antoine Rousseau"},
+            {"value": "10323", "label": "Antoine Raynaud"},
+            {"value": "20651", "label": "Arthur Robert_payplug"},
+            {"value": "161",   "label": "Alessandro Ursini"},
+            {"value": "10255", "label": "Chiara Chaignaud"},
+            {"value": "10280", "label": "Christelle Mentor"},
+            {"value": "20692", "label": "Clément Willk-Fabia"},
+            {"value": "30",    "label": "Eric Cohen"},
+            {"value": "10553", "label": "Erwan Dronne"},
+            {"value": "35",    "label": "François Bureau"},
+            {"value": "10589", "label": "Fannie Lauze"},
+            {"value": "100",   "label": "Federica Narbone"},
+            {"value": "10550", "label": "Gaetan Coatleven"},
+            {"value": "20721", "label": "Gautier Toulemonde"},
+            {"value": "10199", "label": "Irène de Giorgio"},
+            {"value": "10324", "label": "Ilyes Djebnoune"},
+            {"value": "10225", "label": "Juliette Manyères"},
+            {"value": "10595", "label": "Jonathan Mayamona"},
+            {"value": "10226", "label": "Kenza Guerinat"},
+            {"value": "124",   "label": "Ludovica Durelli"},
+            {"value": "10244", "label": "Marie Bruguera"},
+            {"value": "127",   "label": "Martina Foggiano"},
+            {"value": "20631", "label": "Matthew Houtart"},
+            {"value": "10327", "label": "Michelangelo Palumbo"},
+            {"value": "67",    "label": "Marie-Rebecca El Hachem"},
+            {"value": "10486", "label": "Nathan Duc"},
+            {"value": "10556", "label": "Oceane Schenker"},
+            {"value": "10590", "label": "Pedro Rodrigues"},
+            {"value": "10434", "label": "Romane Jarillon"},
+            {"value": "20661", "label": "Romain Pastureau"},
+            {"value": "10309", "label": "Ronan Ponce"},
+            {"value": "10592", "label": "Ulysse Hottier"},
+            {"value": "125",   "label": "Xavier Lespine"},
+        ],
+    },
+}
+# ───────────────────────────────────────────────────────────────────────────────
 
-LOG_FILE          = f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE         = False
-DEFAULT_MASTER_VALUE = ""
-# ──────────────────────────────────────────────────────────────────────────────
+
+def _build_ops(selection: dict) -> list:
+    """Convertit {field_id: value} en liste d'opérations."""
+    ops = []
+    for field_id, value in selection.items():
+        if field_id not in AVAILABLE_FIELDS:
+            continue
+        fdef = AVAILABLE_FIELDS[field_id]
+        ops.append({
+            "field_id":   field_id,
+            "selector":   fdef["selector"],
+            "field_type": fdef.get("field_type", "text"),
+            "value":      value,
+            "mode":       fdef["value_mode"],
+            "csv_column": fdef.get("csv_column"),
+        })
+    return ops
 
 
-def ask_config() -> str:
+def _ask_interactive() -> list:
+    """Mode terminal : demande interactive pour chaque champ disponible."""
+    ops = []
+    print("─────────────────────────────────────────────")
+    print("CHAMPS À MODIFIER")
+    print("─────────────────────────────────────────────")
+    for field_id, fdef in AVAILABLE_FIELDS.items():
+        sel = input(f"  Modifier '{fdef['label']}' ? [o/N] : ").strip().lower()
+        if sel == 'o':
+            if fdef['value_mode'] == 'fixed':
+                if fdef.get('field_type') == 'select':
+                    for opt in fdef.get('options', []):
+                        print(f"    {opt['value']:>8}  {opt['label']}")
+                    val = input(f"  → Value à appliquer : ").strip()
+                else:
+                    val = input(f"  → Valeur à appliquer : ").strip()
+                ops.append({
+                    "field_id":   field_id,
+                    "selector":   fdef["selector"],
+                    "field_type": fdef.get("field_type", "text"),
+                    "value":      val,
+                    "mode":       "fixed",
+                    "csv_column": None,
+                })
+            else:
+                ops.append({
+                    "field_id":   field_id,
+                    "selector":   fdef["selector"],
+                    "field_type": fdef.get("field_type", "text"),
+                    "value":      "__csv__",
+                    "mode":       "dynamic",
+                    "csv_column": fdef["csv_column"],
+                })
+    print("─────────────────────────────────────────────\n")
+    return ops
+
+
+def ask_config() -> list:
+    """
+    Retourne la liste des opérations à effectuer.
+    - Terminal (TTY) : prompts interactifs
+    - Dashboard/pipe : lit une ligne JSON {"field_id": "value", ...}
+    """
+    if sys.stdin.isatty():
+        return _ask_interactive()
     try:
-        value = input("Valeur Compte Master à appliquer : ").strip()
-        if not value:
-            raise ValueError("valeur vide")
-        print(f"\n→ Valeur : {value}")
-        print("─────────────────────────────────────────────\n")
-        return value
-    except (EOFError, ValueError):
-        print(f"Mode dashboard — valeur par défaut : '{DEFAULT_MASTER_VALUE}'\n")
-        return DEFAULT_MASTER_VALUE
+        raw = input().strip()
+        selection = json.loads(raw)
+        ops = _build_ops(selection)
+        for op in ops:
+            label = AVAILABLE_FIELDS[op["field_id"]]["label"]
+            val   = op["value"] if op["mode"] == "fixed" else f"[CSV:{op['csv_column']}]"
+            print(f"  ✓ {label} : {val}")
+        print()
+        return ops
+    except (EOFError, json.JSONDecodeError) as e:
+        print(f"⚠ Configuration invalide ({e}) — aucun champ sélectionné.\n")
+        return []
 
 
 def load_session(path: str) -> dict:
-    """Charge la session et s'assure que toutes les valeurs localStorage sont des strings."""
     with open(path, encoding="utf-8") as f:
         session = json.load(f)
     for origin in session.get("origins", []):
@@ -42,39 +164,49 @@ def load_session(path: str) -> dict:
     return session
 
 
-async def update_page(page, url: str, master_value: str, row_id: str) -> dict:
-    value = master_value
-    result = {"id": row_id, "url": url, "master_value": master_value, "status": "", "message": ""}
-    try:
-        # 1. Ouvrir le lien
-        await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+async def update_page(page, url: str, row_id: str, field_ops: list, row_data: dict) -> dict:
+    result = {"id": row_id, "url": url, "status": "", "message": ""}
 
-        # 2. Cliquer sur Éditer
+    for op in field_ops:
+        value = op["value"] if op["mode"] == "fixed" else row_data.get(op["csv_column"], "")
+        result[op["field_id"]] = value
+
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=15000)
         await page.wait_for_selector(EDIT_BUTTON, timeout=8000)
         await page.click(EDIT_BUTTON)
 
-        # 3. Remplir la valeur
-        await page.wait_for_selector(VALUE_INPUT, timeout=8000)
-        await page.fill(VALUE_INPUT, "")
-        await page.fill(VALUE_INPUT, str(value))
+        # Attendre le bouton Save non-readonly = formulaire en mode édition
+        save_edit = SAVE_BUTTON + ":not([readonly])"
+        await page.wait_for_selector(save_edit, timeout=8000)
 
-        # 4. Cliquer sur Enregistrer
-        await page.wait_for_selector(SAVE_BUTTON, timeout=5000)
-        await page.click(SAVE_BUTTON)
+        for op in field_ops:
+            value = op["value"] if op["mode"] == "fixed" else row_data.get(op["csv_column"], "")
+            await page.wait_for_selector(op["selector"], timeout=8000)
+            if op.get("field_type") == "select":
+                print(f"  → Tentative select : selector='{op['selector']}' value='{value}'")
+                locator = page.locator(op["selector"])
+                await locator.wait_for(state="visible", timeout=8000)
+                await locator.select_option(value=str(value))
+                confirmed = await page.eval_on_selector(op["selector"], "el => el.value")
+                print(f"  → Valeur confirmée dans le DOM : '{confirmed}'")
+            else:
+                await page.fill(op["selector"], "")
+                await page.fill(op["selector"], str(value))
+            print(f"  ✓ [{row_id}] {AVAILABLE_FIELDS[op['field_id']]['label']} → {value}")
 
-        # 5. Attendre le reload
+        await page.click(save_edit)
         await page.wait_for_load_state("domcontentloaded", timeout=10000)
 
         result["status"] = "OK"
-        print(f"  ✓ [{row_id}] → {value}")
 
     except PlaywrightTimeout as e:
-        result["status"] = "ERREUR_TIMEOUT"
+        result["status"]  = "ERREUR_TIMEOUT"
         result["message"] = str(e)[:120]
         print(f"  ✗ [{row_id}] Timeout : {e}")
 
     except Exception as e:
-        result["status"] = "ERREUR"
+        result["status"]  = "ERREUR"
         result["message"] = str(e)[:120]
         print(f"  ✗ [{row_id}] {e}")
 
@@ -82,7 +214,10 @@ async def update_page(page, url: str, master_value: str, row_id: str) -> dict:
 
 
 async def main():
-    master_value = ask_config()
+    field_ops = ask_config()
+    if not field_ops:
+        print("Aucun champ sélectionné — arrêt.")
+        return
 
     print("Chargement du CSV...")
     df = pd.read_csv(DATA_SOURCE, dtype=str)
@@ -99,15 +234,17 @@ async def main():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=not TEST_MODE)
         context = await browser.new_context(storage_state=load_session("session.json"))
-        page = await context.new_page()
+        page    = await context.new_page()
 
         for _, row in df.iterrows():
-            print(f"→ Traitement {row['id']} | {row['url']}")
+            row_data = row.to_dict()
+            print(f"\n→ Traitement {row['id']} | {row['url']}")
             result = await update_page(
                 page,
                 url=row["url"],
-                master_value=master_value,
                 row_id=row["id"],
+                field_ops=field_ops,
+                row_data=row_data,
             )
             results.append(result)
             await asyncio.sleep(1.5)
@@ -115,9 +252,11 @@ async def main():
         await context.close()
         await browser.close()
 
-    # Sauvegarde du log
+    field_columns = [op["field_id"] for op in field_ops]
+    fieldnames    = ["id", "url"] + field_columns + ["status", "message"]
+
     with open(LOG_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["id", "url", "master_value", "status", "message"])
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(results)
 

@@ -7,6 +7,10 @@ import time
 import json
 import pandas as pd
 from datetime import datetime
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 # ── CONFIGURATION ──────────────────────────────────────────────────────────────
 API_KEY = os.getenv("SOLVIMON_API_KEY", "YOUR_API_KEY_HERE")

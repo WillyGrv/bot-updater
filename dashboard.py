@@ -31,6 +31,35 @@ BOTS = [
                 "outputs":     ["session.json"],
             },
             {
+                "file":        "scrape_company_ref.py",
+                "name":        "Scraper les Company Refs",
+                "description": "Lit data.csv et extrait le company_ref de chaque URL.",
+                "inputs":      ["data.csv (colonnes : id, url)", "session.json"],
+                "outputs":     ["company_refs_XXXXXX.csv"],
+                "params":      [],
+            },
+            {
+                "file":        "feature_flag_updater.py",
+                "name":        "Ajouter un Feature Flag",
+                "description": "Lit le company_refs_*.csv sélectionné et crée le feature flag sur chaque compte.",
+                "inputs":      ["company_refs_XXXXXX.csv", "session.json"],
+                "outputs":     ["results_feature_flags_XXXXXX.csv"],
+                "params": [
+                    {
+                        "id":          "flag_name",
+                        "type":        "text",
+                        "label":       "Nom du feature flag",
+                        "placeholder": "ex: new-checkout-v2",
+                    },
+                    {
+                        "id":    "company_refs_file",
+                        "type":  "dynamic_select",
+                        "label": "Fichier company_refs à utiliser",
+                        "api":   "/api/company_refs_files/admin_field_updater",
+                    },
+                ],
+            },
+            {
                 "file":        "admin_field_updater.py",
                 "name":        "Bot Updater",
                 "description": "Lit data.csv et applique la valeur saisie sur chaque URL.",
@@ -101,7 +130,7 @@ BOTS = [
                 ],
             },
         ],
-        "results_globs":   ["results_*.csv"],
+        "results_globs":   ["results_*.csv", "company_refs_*.csv"],
         "editable_csvs":   [{"file": "data.csv", "label": "data.csv — urls à traiter"}],
         "test_mode_script": "admin_field_updater.py",
     },
@@ -347,6 +376,21 @@ def write_csv(bot_id, filename):
     path    = BASE_DIR / bot_id / filename
     path.write_text(content, encoding="utf-8")
     return jsonify({"ok": True})
+
+
+@app.route("/api/company_refs_files/<bot_id>")
+def get_company_refs_files(bot_id):
+    bot_path = BASE_DIR / bot_id
+    files    = sorted(glob(str(bot_path / "company_refs_*.csv")), reverse=True)
+    result   = []
+    for f in files:
+        try:
+            with open(f, encoding="utf-8") as fp:
+                count = sum(1 for _ in fp) - 1  # minus header
+        except Exception:
+            count = -1
+        result.append({"name": Path(f).name, "count": max(count, 0)})
+    return jsonify(result)
 
 
 @app.route("/api/results/<bot_id>")

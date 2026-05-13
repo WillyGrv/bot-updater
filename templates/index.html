@@ -232,7 +232,7 @@
     // Scripts
     let scriptsHtml = '';
     bot.scripts.forEach(script => {
-      const paramsAttr = script.params ? `data-params='${JSON.stringify(script.params)}'` : '';
+      const paramsAttr = script.params ? `data-params="${JSON.stringify(script.params).replace(/"/g, '&quot;')}"` : '';
       scriptsHtml += `
         <div class="script-item">
           <div class="script-content">
@@ -364,6 +364,7 @@
     document.getElementById('paramsScriptFile').textContent = scriptFile;
 
     let html = '';
+    const dynamicSelects = [];
     params.forEach(p => {
       html += `<div class="mb-4"><div class="fw-semibold mb-2" style="font-size:.88rem;">${p.label}</div>`;
       if (p.type === 'field_selector') {
@@ -397,6 +398,12 @@
       } else if (p.type === 'text') {
         html += `<input class="form-control" type="text" name="param_${p.id}"
                         placeholder="${p.placeholder || ''}" autocomplete="off">`;
+      } else if (p.type === 'dynamic_select') {
+        html += `<select class="form-select" name="param_${p.id}" id="dynsel_${p.id}"
+                         style="background:#0f172a; color:#e2e8f0; border-color:#334155;">
+          <option value="">Chargement…</option>
+        </select>`;
+        dynamicSelects.push({ id: p.id, api: p.api });
       } else {
         (p.options || []).forEach((opt, i) => {
           const checked = opt.value === p.default ? 'checked' : '';
@@ -410,6 +417,24 @@
     });
     document.getElementById('paramsBody').innerHTML = html;
     paramsModal.show();
+    dynamicSelects.forEach(ds => {
+      fetch(ds.api)
+        .then(r => r.json())
+        .then(files => {
+          const sel = document.getElementById(`dynsel_${ds.id}`);
+          if (!files.length) {
+            sel.innerHTML = '<option value="">Aucun fichier disponible</option>';
+            return;
+          }
+          sel.innerHTML = files.map((f, i) =>
+            `<option value="${f.name}"${i === 0 ? ' selected' : ''}>${f.name} — ${f.count} ligne${f.count > 1 ? 's' : ''}${i === 0 ? ' (dernier)' : ''}</option>`
+          ).join('');
+        })
+        .catch(() => {
+          document.getElementById(`dynsel_${ds.id}`).innerHTML =
+            '<option value="">Erreur de chargement</option>';
+        });
+    });
   }
 
   function confirmAndRun() {
@@ -431,6 +456,9 @@
       } else if (p.type === 'text') {
         const input = document.querySelector(`input[name="param_${p.id}"]`);
         lines.push(input ? input.value.trim() : '');
+      } else if (p.type === 'dynamic_select') {
+        const sel = document.querySelector(`select[name="param_${p.id}"]`);
+        lines.push(sel ? sel.value : '');
       } else {
         const checked = document.querySelector(`input[name="param_${p.id}"]:checked`);
         lines.push(checked ? checked.value : (p.default || ''));

@@ -142,6 +142,15 @@ async def generate_key(page, account_id: str, key_name: str, account_name: str,
     }
 
     try:
+        # Fermer la modale si elle est restée ouverte après une erreur précédente
+        try:
+            close_btn = page.locator(SEL_CLOSE_BTN)
+            if await close_btn.is_visible(timeout=1500):
+                await close_btn.click()
+                await page.wait_for_selector(SEL_CLOSE_BTN, state="hidden", timeout=3000)
+        except Exception:
+            pass
+
         await switch_account(page, account_id)
         print(f"  ✓ Compte actif : {account_name}")
 
@@ -176,12 +185,21 @@ async def generate_key(page, account_id: str, key_name: str, account_name: str,
                     return true;
                 }
             """)
-            await asyncio.sleep(0.4)
             if switched:
                 print(f"  ✓ Environnement Live activé")
+            # Attendre que le bouton soit stable après le re-render React
+            await page.wait_for_selector(SEL_SUBMIT_BTN, state="visible", timeout=8000)
+            await asyncio.sleep(0.3)
 
         # ── Générer ────────────────────────────────────────────────────────────
-        await page.click(SEL_SUBMIT_BTN)
+        # Clic JS direct pour contourner les overlays/animations React
+        await page.wait_for_selector(SEL_SUBMIT_BTN, state="attached", timeout=8000)
+        await page.evaluate(
+            "document.querySelector('[data-e2e=\"api-keys-modal-submit-button\"]').click()"
+        )
+        await asyncio.sleep(1.5)
+        await page.screenshot(path=f"debug_after_submit_{account_id}.png", full_page=False)
+        print(f"  📸 Screenshot → debug_after_submit_{account_id}.png")
 
         # ── Récupération des credentials ───────────────────────────────────────
         if key_type == "oauth2":

@@ -2,6 +2,10 @@ import os
 import sys
 import json
 import requests
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 ENVS = {
     "prod":    "https://payplug.solvimon.com/v1",

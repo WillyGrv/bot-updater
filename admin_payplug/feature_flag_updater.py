@@ -6,12 +6,28 @@ from glob import glob
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 from datetime import datetime
 
-LOG_FILE    = f"results_feature_flags_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE   = False
+LOG_FILE    = f"results/results_feature_flags_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+TEST_MODE = False
 
 BASE_URL    = "https://admin.payplug.com/companies/{company_ref}/feature-flags"
 FLAG_INPUT  = '#new-flag-name-input'
 FLAG_SUBMIT = 'button[data-e2e="new-feature-flag-submit"]'
+
+
+async def _screenshot_timeout(page, identifier: str) -> None:
+    import os
+    os.makedirs("screenshots", exist_ok=True)
+    try:
+        path_png = f"screenshots/timeout_{identifier}.png"
+        await page.screenshot(path=path_png, full_page=True)
+        print(f"  📸 Screenshot → {path_png}")
+        print(f"  🌐 URL : {page.url}")
+        html = await page.evaluate("() => document.body ? document.body.innerHTML.slice(0, 2000) : '(vide)'")
+        with open(f"screenshots/timeout_{identifier}.html", "w", encoding="utf-8") as f:
+            f.write(html)
+        print(f"  📄 HTML → screenshots/timeout_{identifier}.html")
+    except Exception as dbg_err:
+        print(f"  ⚠ Capture debug échouée : {dbg_err}")
 
 
 def load_session(path: str) -> dict:
@@ -25,14 +41,15 @@ def load_session(path: str) -> dict:
 
 
 def get_company_refs_files() -> list[str]:
-    return sorted(glob("company_refs_*.csv"), reverse=True)
+    return sorted(glob("results/company_refs_*.csv"), reverse=True)
 
 
-def ask_config() -> tuple[str, str]:
+def ask_config() -> tuple[str, str, str]:
     """
-    Retourne (flag_name, company_refs_filename).
+    Retourne (flag_name, source_mode, company_refs_filename).
+    source_mode : "csv_file" | "input"
     - Terminal (TTY) : prompts interactifs
-    - Dashboard/pipe : lit ligne 1 = flag_name, ligne 2 = filename (vide = dernier)
+    - Dashboard/pipe : ligne 1 = flag_name, ligne 2 = source_mode, ligne 3 = filename
     """
     files = get_company_refs_files()
 
@@ -40,7 +57,14 @@ def ask_config() -> tuple[str, str]:
         print("─────────────────────────────────────────────")
         flag_name = input("  Nom du feature flag à créer : ").strip()
         if not flag_name:
-            return "", ""
+            return "", "", ""
+        print("\n  Source des company_refs :")
+        print("    [0] Fichier company_refs (résultats ScrapBot)")
+        print("    [1] Input - Company_ref (channel_accounts.csv)")
+        src_choice = input("  Choix [0] : ").strip()
+        if src_choice == "1":
+            print("─────────────────────────────────────────────\n")
+            return flag_name, "input", ""
         if files:
             print(f"\n  Fichiers company_refs disponibles :")
             for i, f in enumerate(files):
@@ -54,18 +78,23 @@ def ask_config() -> tuple[str, str]:
         else:
             selected = ""
         print("─────────────────────────────────────────────\n")
-        return flag_name, selected
+        return flag_name, "csv_file", selected
 
     try:
-        flag_name = input().strip()
-        selected  = input().strip()
-        if not selected and files:
+        flag_name   = input().strip()
+        source_mode = input().strip() or "csv_file"
+        selected    = input().strip()
+        if source_mode == "csv_file" and not selected and files:
             selected = files[0]
         print(f"  ✓ Flag    : {flag_name}")
-        print(f"  ✓ Fichier : {selected}\n")
-        return flag_name, selected
+        print(f"  ✓ Source  : {source_mode}")
+        if source_mode == "csv_file":
+            print(f"  ✓ Fichier : {selected}\n")
+        else:
+            print(f"  ✓ Fichier : input/channel_accounts.csv\n")
+        return flag_name, source_mode, selected
     except EOFError:
-        return "", ""
+        return "", "", ""
 
 
 async def apply_feature_flag(page, company_ref: str, row_id: str, flag_name: str) -> dict:
@@ -85,6 +114,7 @@ async def apply_feature_flag(page, company_ref: str, row_id: str, flag_name: str
         result["status"]  = "ERREUR_TIMEOUT"
         result["message"] = str(e)[:120]
         print(f"  ✗ [{row_id}] Timeout : {e}")
+        await _screenshot_timeout(page, row_id)
     except Exception as e:
         result["status"]  = "ERREUR"
         result["message"] = str(e)[:120]
@@ -93,23 +123,35 @@ async def apply_feature_flag(page, company_ref: str, row_id: str, flag_name: str
 
 
 async def main():
-    flag_name, company_refs_file = ask_config()
+    import os; os.makedirs("results", exist_ok=True)
+    flag_name, source_mode, company_refs_file = ask_config()
     if not flag_name:
         print("Nom du flag vide — arrêt.")
         return
-    if not company_refs_file:
-        print("Aucun fichier company_refs trouvé — lance d'abord 'Scraper les Realm IDs'.")
-        return
 
-    print(f"Lecture de {company_refs_file}...")
     rows = []
-    with open(company_refs_file, encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            if row.get("company_ref") and row.get("status", "").upper() == "OK":
-                rows.append(row)
+    if source_mode == "input":
+        src_path = "input/channel_accounts.csv"
+        print(f"Lecture de {src_path}...")
+        with open(src_path, encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                row = {k.strip().lower(): v for k, v in row.items()}
+                if row.get("company_ref"):
+                    if "id" not in row:
+                        row["id"] = row["company_ref"]
+                    rows.append(row)
+    else:
+        if not company_refs_file:
+            print("Aucun fichier company_refs trouvé — lance d'abord 'Scraper les Realm IDs'.")
+            return
+        print(f"Lecture de {company_refs_file}...")
+        with open(company_refs_file, encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                if row.get("company_ref") and row.get("status", "").upper() == "OK":
+                    rows.append(row)
 
     if not rows:
-        print("Aucune ligne valide (company_ref + status OK) — arrêt.")
+        print("Aucune ligne valide avec company_ref — arrêt.")
         return
 
     if TEST_MODE:

@@ -9,11 +9,11 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 from datetime import datetime
 
 # ── CONFIGURATION ──────────────────────────────────────────────────────────────
-DATA_SOURCE  = "accounts.csv"
+DATA_SOURCE  = "input/keygen_accounts.csv"
 SESSION_FILE = "session.json"
 KEYS_URL     = "https://portal.payplug.com/#/configuration/connection/keys"
 LOG_FILE     = f"results/results_payplug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE = False
+TEST_MODE = True
 
 ACCOUNT_SWITCHER_TRIGGER = "[data-e2e='account-switcher']"
 
@@ -27,6 +27,7 @@ SEL_GENERATE_BTN    = "[data-e2e='api-keys-generate-key-button']"
 SEL_KEY_NAME_INPUT  = "[data-e2e='api-keys-modal-input-clientName']"
 SEL_SUBMIT_BTN      = "[data-e2e='api-keys-modal-submit-button']"
 SEL_CLOSE_BTN       = "[data-e2e='api-keys-modal-close-button']"
+SEL_CANCEL_BTN      = "[data-e2e='api-keys-modal-cancel-button']"
 
 # OAuth2
 SEL_CLIENT_ID       = "[data-e2e='api-keys-modal-clientId-value']"
@@ -42,6 +43,28 @@ SEL_ENV_SWITCH      = "[data-e2e='api-keys-modal-switch'] label"
 
 
 TOKEN_URL = "https://api.payplug.com/oauth2/token"
+
+
+async def _screenshot_timeout(page, identifier: str) -> bool:
+    """Capture screenshot + HTML on timeout. Returns True si la page est blanche."""
+    os.makedirs("screenshots", exist_ok=True)
+    is_blank = False
+    try:
+        path_png = f"screenshots/timeout_{identifier}.png"
+        await page.screenshot(path=path_png, full_page=True)
+        print(f"  📸 Screenshot → {path_png}")
+        print(f"  🌐 URL : {page.url}")
+        body_text = await page.evaluate("() => document.body ? document.body.innerText.trim() : ''")
+        is_blank  = len(body_text) < 50
+        if is_blank:
+            print(f"  ⚠ Page blanche détectée")
+        html = await page.evaluate("() => document.body ? document.body.innerHTML.slice(0, 2000) : '(vide)'")
+        with open(f"screenshots/timeout_{identifier}.html", "w", encoding="utf-8") as f:
+            f.write(html)
+        print(f"  📄 HTML → screenshots/timeout_{identifier}.html")
+    except Exception as dbg_err:
+        print(f"  ⚠ Capture debug échouée : {dbg_err}")
+    return is_blank
 
 
 def get_oauth_token(client_id: str, client_secret: str) -> str:
@@ -114,20 +137,32 @@ def load_session(path: str) -> dict:
     return session
 
 
-async def switch_account(page, account_id: str):
+async def switch_account(page, company_ref: str):
     await page.click(ACCOUNT_SWITCHER_TRIGGER)
-    await page.wait_for_selector(
-        f"[data-e2e='account-switcher-company-{account_id}']",
-        timeout=8000,
-    )
-    await page.click(f"[data-e2e='account-switcher-company-{account_id}']")
+    # Attendre que le panel soit ouvert (au moins un item présent)
+    await page.wait_for_selector("[data-e2e^='account-switcher-company-']", timeout=10000)
+    company_sel = f"[data-e2e='account-switcher-company-{company_ref}']"
+    locator = page.locator(company_sel)
+    try:
+        await locator.wait_for(timeout=12000)
+    except PlaywrightTimeout:
+        # Peut nécessiter un scroll dans le panel
+        await page.evaluate("""
+            (sel) => {
+                const el = document.querySelector(sel);
+                if (el) el.scrollIntoView({ block: 'center' });
+            }
+        """, company_sel)
+        await locator.wait_for(timeout=8000)
+    await locator.scroll_into_view_if_needed()
+    await locator.click()
     await page.wait_for_load_state("domcontentloaded", timeout=15000)
 
 
-async def generate_key(page, account_id: str, key_name: str, account_name: str,
+async def generate_key(page, company_ref: str, key_name: str, account_name: str,
                        key_type: str, environment: str) -> dict:
     result = {
-        "account_id":    account_id,
+        "company_ref":    company_ref,
         "account_name":  account_name,
         "key_name":      key_name,
         "key_type":      key_type,
@@ -151,7 +186,7 @@ async def generate_key(page, account_id: str, key_name: str, account_name: str,
         except Exception:
             pass
 
-        await switch_account(page, account_id)
+        await switch_account(page, company_ref)
         print(f"  ✓ Compte actif : {account_name}")
 
         await page.goto(KEYS_URL, wait_until="domcontentloaded", timeout=15000)
@@ -191,6 +226,33 @@ async def generate_key(page, account_id: str, key_name: str, account_name: str,
             await page.wait_for_selector(SEL_SUBMIT_BTN, state="visible", timeout=8000)
             await asyncio.sleep(0.3)
 
+            # ── Vérifier si la génération Live est bloquée (onboarding non validé) ─
+            submit_disabled = await page.evaluate("""
+                () => {
+                    const btn = document.querySelector('[data-e2e="api-keys-modal-submit-button"]');
+                    return btn ? (btn.disabled || btn.getAttribute('aria-disabled') === 'true') : false;
+                }
+            """)
+            if submit_disabled:
+                tooltip_text = await page.evaluate("""
+                    () => {
+                        const el = document.querySelector('.ant-tooltip-inner[role="tooltip"]');
+                        return el ? el.textContent.trim()
+                                  : "Génération de clé impossible (onboarding non finalisé)";
+                    }
+                """)
+                result["status"]  = "ERREUR_ONBOARDING_INCOMPLET"
+                result["message"] = tooltip_text
+                print(f"  ✗ Génération Live bloquée — compte ignoré")
+                try:
+                    cancel_btn = page.locator(SEL_CANCEL_BTN)
+                    if await cancel_btn.is_visible(timeout=2000):
+                        await cancel_btn.click()
+                        await page.wait_for_selector(SEL_CANCEL_BTN, state="hidden", timeout=3000)
+                except Exception:
+                    pass
+                return result
+
         # ── Générer ────────────────────────────────────────────────────────────
         # Clic JS direct pour contourner les overlays/animations React
         await page.wait_for_selector(SEL_SUBMIT_BTN, state="attached", timeout=8000)
@@ -198,8 +260,6 @@ async def generate_key(page, account_id: str, key_name: str, account_name: str,
             "document.querySelector('[data-e2e=\"api-keys-modal-submit-button\"]').click()"
         )
         await asyncio.sleep(1.5)
-        await page.screenshot(path=f"debug_after_submit_{account_id}.png", full_page=False)
-        print(f"  📸 Screenshot → debug_after_submit_{account_id}.png")
 
         # ── Récupération des credentials ───────────────────────────────────────
         if key_type == "oauth2":
@@ -242,6 +302,9 @@ async def generate_key(page, account_id: str, key_name: str, account_name: str,
         result["status"]  = "ERREUR_TIMEOUT"
         result["message"] = str(e)[:150]
         print(f"  ✗ Timeout : {str(e)[:80]}")
+        is_blank = await _screenshot_timeout(page, company_ref)
+        if is_blank:
+            result["status"] = "ERREUR_PAGE_BLANCHE"
 
     except Exception as e:
         result["status"]  = "ERREUR"
@@ -276,15 +339,18 @@ async def main():
         await page.goto("https://portal.payplug.com/", wait_until="domcontentloaded")
 
         for _, row in df.iterrows():
-            account_id   = row["account_id"]
-            account_name = row.get("account_name", account_id)
+            company_ref   = row["company_ref"]
+            account_name = row.get("account_name", company_ref)
             key_name     = row["key_name"]
-            print(f"\n→ [{account_name}] {account_id}")
+            print(f"\n→ [{account_name}] {company_ref}")
 
             result = await generate_key(
-                page, account_id, key_name, account_name, key_type, environment
+                page, company_ref, key_name, account_name, key_type, environment
             )
             results.append(result)
+            if result["status"] == "ERREUR_PAGE_BLANCHE":
+                print(f"\n⛔ Page blanche — session probablement expirée. Arrêt du process.")
+                break
             await asyncio.sleep(1.5)
 
         await context.close()
@@ -292,7 +358,7 @@ async def main():
 
     with open(LOG_FILE, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=[
-            "account_id", "account_name", "key_name",
+            "company_ref", "account_name", "key_name",
             "key_type", "environment",
             "client_id", "client_secret", "api_key",
             "company_ref", "jwt_token",

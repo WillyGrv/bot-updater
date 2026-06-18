@@ -5,11 +5,27 @@ import pandas as pd
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 from datetime import datetime
 
-DATA_SOURCE       = "data.csv"
-LOG_FILE          = f"company_refs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE         = False
+DATA_SOURCE       = "input/data.csv"
+LOG_FILE          = f"results/company_refs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+TEST_MODE = False
 
 COMPANY_REF_SELECTOR = 'code[data-e2e="companyRef"]'
+
+
+async def _screenshot_timeout(page, identifier: str) -> None:
+    import os
+    os.makedirs("screenshots", exist_ok=True)
+    try:
+        path_png = f"screenshots/timeout_{identifier}.png"
+        await page.screenshot(path=path_png, full_page=True)
+        print(f"  📸 Screenshot → {path_png}")
+        print(f"  🌐 URL : {page.url}")
+        html = await page.evaluate("() => document.body ? document.body.innerHTML.slice(0, 2000) : '(vide)'")
+        with open(f"screenshots/timeout_{identifier}.html", "w", encoding="utf-8") as f:
+            f.write(html)
+        print(f"  📄 HTML → screenshots/timeout_{identifier}.html")
+    except Exception as dbg_err:
+        print(f"  ⚠ Capture debug échouée : {dbg_err}")
 
 
 def load_session(path: str) -> dict:
@@ -36,6 +52,7 @@ async def scrape_company_ref(page, url: str, row_id: str) -> dict:
         result["status"]  = "ERREUR_TIMEOUT"
         result["message"] = str(e)[:120]
         print(f"  ✗ [{row_id}] Timeout : {e}")
+        await _screenshot_timeout(page, row_id)
     except Exception as e:
         result["status"]  = "ERREUR"
         result["message"] = str(e)[:120]
@@ -44,6 +61,7 @@ async def scrape_company_ref(page, url: str, row_id: str) -> dict:
 
 
 async def main():
+    import os; os.makedirs("results", exist_ok=True)
     print("Chargement du CSV...")
     df = pd.read_csv(DATA_SOURCE, dtype=str)
     df.columns = df.columns.str.strip().str.lower()

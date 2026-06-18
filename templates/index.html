@@ -52,6 +52,7 @@
       <div class="sub"  id="detail-sub">—</div>
     </div>
     <div id="detail-toggle-slot"></div>
+    <div id="detail-session-slot" class="d-flex align-items-center gap-2"></div>
   </div>
 
   <div class="detail-body">
@@ -160,9 +161,20 @@
           <div class="text-white fw-semibold" id="modalScriptName">—</div>
           <div style="font-size:.75rem; color:#64748b;" id="modalBotName">—</div>
         </div>
-        <span class="badge fs-6 px-3 py-2" id="statusBadge" style="background:#f59e0b;">
-          <span class="spinner-border spinner-border-sm me-1"></span>En cours...
-        </span>
+        <div class="d-flex align-items-center gap-3">
+          <div id="progressWrap" style="display:none; text-align:right;">
+            <div style="font-size:.78rem; color:#cbd5e1; white-space:nowrap;">
+              Ligne <span id="progressCurrent">0</span> / <span id="progressTotal">?</span>
+              <span id="progressPct" style="color:#64748b; margin-left:4px;"></span>
+            </div>
+            <div style="width:140px; height:5px; background:#1e293b; border-radius:3px; overflow:hidden; margin-top:4px;">
+              <div id="progressBar" style="height:100%; width:0%; background:#3b82f6; border-radius:3px; transition:width .4s ease;"></div>
+            </div>
+          </div>
+          <span class="badge fs-6 px-3 py-2" id="statusBadge" style="background:#f59e0b;">
+            <span class="spinner-border spinner-border-sm me-1"></span>En cours...
+          </span>
+        </div>
         <button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body p-0">
@@ -193,6 +205,8 @@
   let activeBotId   = null;
   let pendingRun    = null;
   let activeCsv     = { botId: null, file: null };
+  const sessionStates = {};
+  const savedCredentialsCache = {};
 
   // Clock
   setInterval(() => {
@@ -229,9 +243,32 @@
       slot.innerHTML = '';
     }
 
-    // Scripts
+    // Session slot
+    const loginScript = bot.scripts.find(s => s.file === 'login.py');
+    const sessionSlot = document.getElementById('detail-session-slot');
+    sessionSlot.innerHTML = `
+      <span class="session-badge grey" id="session-badge-${bot.id}">
+        <span class="session-dot"></span>
+        <span class="session-text">…</span>
+      </span>
+      <button class="btn-session-refresh" onclick="checkSession('${bot.id}')" title="Vérifier la session">
+        <i class="bi bi-arrow-clockwise"></i>
+      </button>
+      ${loginScript ? `
+      <button class="btn-session"
+              data-bot-id="${bot.id}"
+              data-script-file="login.py"
+              data-script-name="${loginScript.name}"
+              ${loginScript.params ? `data-params="${JSON.stringify(loginScript.params).replace(/"/g, '&quot;')}"` : ''}
+              onclick="handleRun(this)">
+        <i class="bi bi-key-fill"></i> Session
+      </button>` : ''}
+    `;
+    checkSession(bot.id);
+
+    // Scripts (login.py exclu — déplacé dans le header)
     let scriptsHtml = '';
-    bot.scripts.forEach(script => {
+    bot.scripts.filter(s => s.file !== 'login.py').forEach(script => {
       const paramsAttr = script.params ? `data-params="${JSON.stringify(script.params).replace(/"/g, '&quot;')}"` : '';
       scriptsHtml += `
         <div class="script-item">
@@ -351,6 +388,11 @@
     const scriptFile = btn.dataset.scriptFile;
     const scriptName = btn.dataset.scriptName;
     const params     = btn.dataset.params ? JSON.parse(btn.dataset.params) : null;
+
+    if (scriptFile !== 'login.py' && sessionStates[botId] === false) {
+      alert('Session expirée — cliquez sur "Session" pour en sauvegarder une nouvelle avant de lancer ce script.');
+      return;
+    }
     if (params && params.length > 0) {
       showParamsModal(botId, scriptFile, scriptName, params);
     } else {
@@ -358,15 +400,57 @@
     }
   }
 
+  async function checkSession(botId) {
+    const badge = document.getElementById(`session-badge-${botId}`);
+    if (!badge) return;
+    badge.className = 'session-badge grey';
+    badge.querySelector('.session-text').textContent = 'Vérification…';
+    try {
+      const r    = await fetch(`/api/session-check/${botId}`);
+      const data = await r.json();
+      sessionStates[botId] = data.active;
+
+      let ownerName = null;
+      try {
+        const owner = await (await fetch(`/api/session-owner/${botId}`)).json();
+        ownerName = owner.name || null;
+      } catch(e) { /* pas grave si indisponible */ }
+
+      if (data.active === true) {
+        badge.className = 'session-badge green';
+        badge.querySelector('.session-text').textContent =
+          ownerName ? `Session active — ${ownerName}` : 'Session active';
+      } else if (data.active === false) {
+        badge.className = 'session-badge red';
+        badge.querySelector('.session-text').textContent = 'Session expirée';
+      } else {
+        badge.className = 'session-badge grey';
+        badge.querySelector('.session-text').textContent = 'Non vérifiable';
+      }
+    } catch(e) {
+      badge.className = 'session-badge grey';
+      badge.querySelector('.session-text').textContent = 'Erreur';
+    }
+  }
+
   function showParamsModal(botId, scriptFile, scriptName, params) {
     pendingRun = { botId, scriptFile, scriptName, params };
+    window.currentParams = params;
     document.getElementById('paramsScriptName').textContent = scriptName;
     document.getElementById('paramsScriptFile').textContent = scriptFile;
 
     let html = '';
-    const dynamicSelects = [];
+    const dynamicSelects  = [];
+    const credentialParams = [];
     params.forEach(p => {
-      html += `<div class="mb-4"><div class="fw-semibold mb-2" style="font-size:.88rem;">${p.label}</div>`;
+      const depHidden = p.show_if
+        ? (() => {
+            const dep = params.find(pp => pp.id === p.show_if.param);
+            const defVal = dep ? (dep.default || (dep.options && dep.options[0] ? dep.options[0].value : '')) : '';
+            return defVal !== p.show_if.value;
+          })()
+        : false;
+      html += `<div id="param_group_${p.id}" class="mb-4"${depHidden ? ' style="display:none;"' : ''}><div class="fw-semibold mb-2" style="font-size:.88rem;">${p.label}</div>`;
       if (p.type === 'field_selector') {
         (p.fields || []).forEach(f => {
           let fieldInput;
@@ -378,6 +462,19 @@
             const opts = (f.options || []).map(o => `<option value="${o.value}">${o.label}</option>`).join('');
             fieldInput = `<div id="field_input_${f.id}" class="mt-2 ms-4" style="display:none;">
                 <select class="form-select form-select-sm" name="field_val_${f.id}">${opts}</select>
+              </div>`;
+          } else if (f.field_type === 'comment') {
+            fieldInput = `<div id="field_input_${f.id}" class="mt-2 ms-4" style="display:none;">
+                <textarea class="form-control form-control-sm" name="field_val_${f.id}" rows="3"
+                          placeholder="${f.placeholder || ''}" autocomplete="off"></textarea>
+                <div class="mt-2 d-flex align-items-center gap-2" style="font-size:.82rem; color:#94a3b8;">
+                  <span>Épingler :</span>
+                  <select class="form-select form-select-sm w-auto" name="field_val_pin_${f.id}"
+                          style="background:#0f172a; color:#e2e8f0; border-color:#475569;">
+                    <option value="non">Non</option>
+                    <option value="oui">Oui</option>
+                  </select>
+                </div>
               </div>`;
           } else {
             fieldInput = `<div id="field_input_${f.id}" class="mt-2 ms-4" style="display:none;">
@@ -404,11 +501,74 @@
           <option value="">Chargement…</option>
         </select>`;
         dynamicSelects.push({ id: p.id, api: p.api });
+      } else if (p.type === 'credentials') {
+        html += `
+          <select class="form-select mb-2" name="cred_mode_${p.id}" id="cred_mode_${p.id}"
+                  style="background:#0f172a; color:#e2e8f0; border-color:#334155;"
+                  onchange="credModeChange('${p.id}')">
+            <option value="">Connexion manuelle (par défaut)</option>
+            <option value="">Chargement des identifiants enregistrés…</option>
+          </select>
+          <div id="cred_new_${p.id}" style="display:none;">
+            <input class="form-control form-control-sm mb-2" type="text" name="cred_name_${p.id}"
+                   placeholder="Nom (ex : Compte William)" autocomplete="off">
+            <input class="form-control form-control-sm mb-2" type="text" name="cred_login_${p.id}"
+                   placeholder="Identifiant" autocomplete="off">
+            <input class="form-control form-control-sm mb-2" type="password" name="cred_password_${p.id}"
+                   placeholder="Mot de passe" autocomplete="off">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="cred_remember_${p.id}" id="cred_remember_${p.id}">
+              <label class="form-check-label" for="cred_remember_${p.id}" style="font-size:.82rem;">
+                Mémoriser ces identifiants sous ce nom
+              </label>
+            </div>
+          </div>`;
+        credentialParams.push({ id: p.id, botId });
+      } else if (p.type === 'checkbox_group') {
+        (p.options || []).forEach((opt, i) => {
+          html += `
+            <div class="p-2 rounded mb-1" style="background:#0f172a; border:1px solid #1e293b;">
+              <div class="form-check mb-0">
+                <input class="form-check-input" type="checkbox" name="cbg_${p.id}" id="cbg_${p.id}_${i}" value="${opt.value}">
+                <label class="form-check-label" for="cbg_${p.id}_${i}" style="font-size:.85rem; cursor:pointer;">${opt.label}</label>
+              </div>
+            </div>`;
+        });
+      } else if (p.type === 'radio_with_sub') {
+        const nOpts = (p.options || []).length;
+        (p.options || []).forEach((opt, i) => {
+          const checked = opt.value === p.default ? 'checked' : '';
+          const hasSub  = !!(opt.sub_options && opt.sub_options.length);
+          const subOpts = hasSub
+            ? (opt.sub_options || []).map((so, si) =>
+                `<option value="${so.value}"${si === 0 ? ' selected' : ''}>${so.label}</option>`
+              ).join('')
+            : '';
+          const subDiv = hasSub
+            ? `<div id="rwssub_${p.id}_${i}" class="mt-2 ms-4" style="display:none;">
+                 <select class="form-select form-select-sm" name="rwssub_${p.id}"
+                         style="background:#1e293b; color:#e2e8f0; border-color:#475569;">${subOpts}</select>
+               </div>`
+            : '';
+          html += `
+            <div class="p-3 rounded mb-2" style="background:#0f172a; border:1px solid #334155;">
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="param_${p.id}" id="rws_${p.id}_${i}"
+                       value="${opt.value}" ${checked}
+                       onchange="rwsToggle('${p.id}',${nOpts - 1},${i},${hasSub})">
+                <label class="form-check-label fw-semibold" for="rws_${p.id}_${i}"
+                       style="font-size:.88rem;">${opt.label}</label>
+              </div>
+              ${opt.desc ? `<div style="font-size:.82rem;color:#64748b;margin-left:1.5rem;margin-top:3px;">${opt.desc}</div>` : ''}
+              ${subDiv}
+            </div>`;
+        });
       } else {
         (p.options || []).forEach((opt, i) => {
           const checked = opt.value === p.default ? 'checked' : '';
           html += `<div class="form-check mb-1">
-            <input class="form-check-input" type="radio" name="param_${p.id}" id="opt_${p.id}_${i}" value="${opt.value}" ${checked}>
+            <input class="form-check-input" type="radio" name="param_${p.id}" id="opt_${p.id}_${i}" value="${opt.value}" ${checked}
+                   onchange="showIfToggle('${p.id}', '${opt.value}')">
             <label class="form-check-label" for="opt_${p.id}_${i}" style="font-size:.85rem;">${opt.label}</label>
           </div>`;
         });
@@ -435,6 +595,29 @@
             '<option value="">Erreur de chargement</option>';
         });
     });
+    credentialParams.forEach(cp => {
+      fetch(`/api/credentials/${cp.botId}`)
+        .then(r => r.json())
+        .then(creds => {
+          savedCredentialsCache[cp.id] = creds;
+          let opts = '<option value="">Connexion manuelle (par défaut)</option>';
+          Object.keys(creds).forEach(name => {
+            opts += `<option value="${name}">${name}</option>`;
+          });
+          opts += '<option value="__new__">Nouveaux identifiants…</option>';
+          document.getElementById(`cred_mode_${cp.id}`).innerHTML = opts;
+        })
+        .catch(() => {
+          savedCredentialsCache[cp.id] = {};
+          document.getElementById(`cred_mode_${cp.id}`).innerHTML =
+            '<option value="">Connexion manuelle (par défaut)</option><option value="__new__">Nouveaux identifiants…</option>';
+        });
+    });
+  }
+
+  function credModeChange(id) {
+    const sel = document.getElementById(`cred_mode_${id}`);
+    document.getElementById(`cred_new_${id}`).style.display = (sel.value === '__new__') ? 'block' : 'none';
   }
 
   function confirmAndRun() {
@@ -449,6 +632,8 @@
             selection[f.id] = f.value_mode === 'dynamic'
               ? '__csv__'
               : (document.querySelector(`[name="field_val_${f.id}"]`)?.value.trim() || '');
+            const pinEl = document.querySelector(`[name="field_val_pin_${f.id}"]`);
+            if (pinEl) selection[`pin_${f.id}`] = pinEl.value;
           }
         });
         if (Object.keys(selection).length === 0) { alert('Sélectionne au moins un champ.'); return; }
@@ -459,6 +644,45 @@
       } else if (p.type === 'dynamic_select') {
         const sel = document.querySelector(`select[name="param_${p.id}"]`);
         lines.push(sel ? sel.value : '');
+      } else if (p.type === 'credentials') {
+        const sel  = document.querySelector(`select[name="cred_mode_${p.id}"]`);
+        const mode = sel ? sel.value : '';
+
+        if (!mode) {
+          lines.push('');  // connexion manuelle
+        } else if (mode === '__new__') {
+          const name     = document.querySelector(`[name="cred_name_${p.id}"]`)?.value.trim() || '';
+          const login    = document.querySelector(`[name="cred_login_${p.id}"]`)?.value.trim() || '';
+          const password = document.querySelector(`[name="cred_password_${p.id}"]`)?.value.trim() || '';
+          const remember = document.querySelector(`[name="cred_remember_${p.id}"]`)?.checked || false;
+          if (!login || !password) { alert('Renseigne un identifiant et un mot de passe.'); return; }
+          if (remember) {
+            if (!name) { alert('Indique un nom pour mémoriser ces identifiants.'); return; }
+            fetch(`/api/credentials/${botId}`, {
+              method:  'POST',
+              headers: {'Content-Type': 'application/json'},
+              body:    JSON.stringify({ name, login, password }),
+            });
+          }
+          lines.push(JSON.stringify({ login, password, name: name || null }));
+        } else {
+          const saved = (savedCredentialsCache[p.id] || {})[mode];
+          if (!saved) { alert('Identifiants enregistrés introuvables — réessaie.'); return; }
+          lines.push(JSON.stringify({ login: saved.login, password: saved.password, name: mode }));
+        }
+      } else if (p.type === 'checkbox_group') {
+        const checked = [...document.querySelectorAll(`input[name="cbg_${p.id}"]:checked`)].map(el => el.value);
+        if (checked.length === 0) { alert('Sélectionne au moins une fonctionnalité.'); return; }
+        lines.push(JSON.stringify(checked));
+      } else if (p.type === 'radio_with_sub') {
+        const checked = document.querySelector(`input[name="param_${p.id}"]:checked`);
+        const val     = checked ? checked.value : (p.default || '');
+        if (val === '__sub__') {
+          const sub = document.querySelector(`select[name="rwssub_${p.id}"]`);
+          lines.push(sub ? sub.value : 'analyse');
+        } else {
+          lines.push(val);
+        }
       } else {
         const checked = document.querySelector(`input[name="param_${p.id}"]:checked`);
         lines.push(checked ? checked.value : (p.default || ''));
@@ -475,6 +699,11 @@
     document.getElementById('terminalOutput').textContent  = '$ python ' + scriptFile + '\n\n';
     document.getElementById('jobIdDisplay').textContent    = '—';
     document.getElementById('lineCount').textContent       = '0';
+    document.getElementById('progressCurrent').textContent = '0';
+    document.getElementById('progressTotal').textContent   = '?';
+    document.getElementById('progressPct').textContent     = '';
+    document.getElementById('progressBar').style.width     = '0%';
+    document.getElementById('progressWrap').style.display  = 'none';
     setStatus('running');
     outputModal.show();
 
@@ -502,6 +731,7 @@
           term.textContent = header + data.lines.join('\n');
           term.scrollTop   = term.scrollHeight;
           document.getElementById('lineCount').textContent = data.lines.length;
+          updateProgress(data.lines);
           if (data.done) {
             clearInterval(pollInterval);
             setStatus(data.rc === 0 ? 'success' : 'error', data.rc);
@@ -519,10 +749,29 @@
     } else if (state === 'success') {
       badge.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i>Terminé';
       badge.style.background = '#10b981';
+      document.getElementById('progressWrap').style.display = 'none';
     } else {
       badge.innerHTML = `<i class="bi bi-x-circle-fill me-1"></i>Erreur (code ${rc})`;
       badge.style.background = '#ef4444';
+      document.getElementById('progressWrap').style.display = 'none';
     }
+  }
+
+  function updateProgress(lines) {
+    let total   = null;
+    let current = 0;
+    for (const line of lines) {
+      const m = line.match(/\[(?:PROD|MODE TEST)\]\s+(\d+)\s/);
+      if (m) total = parseInt(m[1]);
+      if (/^\s*→\s/.test(line)) current++;
+    }
+    if (total === null) return;
+    const pct  = Math.min(100, Math.round((current / total) * 100));
+    document.getElementById('progressWrap').style.display    = 'block';
+    document.getElementById('progressCurrent').textContent   = current;
+    document.getElementById('progressTotal').textContent     = total;
+    document.getElementById('progressPct').textContent       = `(${pct}%)`;
+    document.getElementById('progressBar').style.width       = pct + '%';
   }
 
   // ── Results ────────────────────────────────────────────────────────────────
@@ -579,6 +828,27 @@
 
   function refreshResults() {
     if (activeBotId) loadResults(activeBotId);
+  }
+
+  // ── radio_with_sub helper ──────────────────────────────────────────────────
+  function rwsToggle(paramId, maxIdx, selectedIdx, hasSub) {
+    for (let i = 0; i <= maxIdx; i++) {
+      const el = document.getElementById(`rwssub_${paramId}_${i}`);
+      if (el) el.style.display = 'none';
+    }
+    if (hasSub) {
+      const el = document.getElementById(`rwssub_${paramId}_${selectedIdx}`);
+      if (el) el.style.display = 'block';
+    }
+  }
+
+  function showIfToggle(radioParamId, selectedValue) {
+    (window.currentParams || []).forEach(p => {
+      if (p.show_if && p.show_if.param === radioParamId) {
+        const el = document.getElementById('param_group_' + p.id);
+        if (el) el.style.display = (selectedValue === p.show_if.value) ? 'block' : 'none';
+      }
+    });
   }
 </script>
 </body>

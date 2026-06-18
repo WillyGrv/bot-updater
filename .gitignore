@@ -4,6 +4,10 @@ venv/
 
 # ── Sessions Playwright (contiennent des cookies de connexion) ───────────────
 **/session.json
+**/session_owner.json
+
+# ── Identifiants de connexion enregistrés (login + mot de passe en clair) ────
+**/credentials.json
 
 # ── Variables d'environnement (clés API) ────────────────────────────────────
 .env
@@ -12,6 +16,9 @@ venv/
 # ── Fichiers de résultats générés ────────────────────────────────────────────
 **/results/
 admin_field_updater/results_*.csv
+
+# ── Screenshots de debug Playwright ─────────────────────────────────────────
+**/screenshots/
 
 # ── Python ───────────────────────────────────────────────────────────────────
 __pycache__/

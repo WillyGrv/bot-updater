@@ -7,12 +7,12 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 from datetime import datetime
 
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
-DATA_SOURCE  = "data.csv"
+DATA_SOURCE  = "input/data.csv"
 BASE_URL     = "https://internal-payment.gcp.dlns.io/intranet/admin/udvs/password?idUdv={idUdv}"
 EMAIL_FIELD  = "input[name='passwordRecovery[email]']"
 SUBMIT_BTN   = "input[type='submit'][name='submit']"
 LOG_FILE     = f"results/results_cockpit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE    = False
+TEST_MODE = False
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -33,6 +33,22 @@ def ask_email() -> str:
         return ""
 
 
+async def _screenshot_timeout(page, identifier: str) -> None:
+    import os
+    os.makedirs("screenshots", exist_ok=True)
+    try:
+        path_png = f"screenshots/timeout_{identifier}.png"
+        await page.screenshot(path=path_png, full_page=True)
+        print(f"  📸 Screenshot → {path_png}")
+        print(f"  🌐 URL : {page.url}")
+        html = await page.evaluate("() => document.body ? document.body.innerHTML.slice(0, 2000) : '(vide)'")
+        with open(f"screenshots/timeout_{identifier}.html", "w", encoding="utf-8") as f:
+            f.write(html)
+        print(f"  📄 HTML → screenshots/timeout_{identifier}.html")
+    except Exception as dbg_err:
+        print(f"  ⚠ Capture debug échouée : {dbg_err}")
+
+
 def load_session(path: str) -> dict:
     with open(path, encoding="utf-8") as f:
         session = json.load(f)
@@ -43,9 +59,9 @@ def load_session(path: str) -> dict:
     return session
 
 
-async def process_udv(page, id_udv: str, email: str) -> dict:
-    result = {"id_udv": id_udv, "email": email, "status": "", "message": ""}
-    url    = BASE_URL.format(idUdv=id_udv)
+async def process_udv(page, id: str, email: str) -> dict:
+    result = {"id": id, "email": email, "status": "", "message": ""}
+    url    = BASE_URL.format(idUdv=id)
 
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
@@ -53,23 +69,24 @@ async def process_udv(page, id_udv: str, email: str) -> dict:
 
         await page.fill(EMAIL_FIELD, "")
         await page.fill(EMAIL_FIELD, email)
-        print(f"  ✓ [{id_udv}] Email saisi : {email}")
+        print(f"  ✓ [{id}] Email saisi : {email}")
 
         await page.click(SUBMIT_BTN)
         await page.wait_for_load_state("domcontentloaded", timeout=10000)
 
         result["status"] = "OK"
-        print(f"  ✓ [{id_udv}] Submit envoyé")
+        print(f"  ✓ [{id}] Submit envoyé")
 
     except PlaywrightTimeout as e:
         result["status"]  = "ERREUR_TIMEOUT"
         result["message"] = str(e)[:120]
-        print(f"  ✗ [{id_udv}] Timeout : {e}")
+        print(f"  ✗ [{id}] Timeout : {e}")
+        await _screenshot_timeout(page, id)
 
     except Exception as e:
         result["status"]  = "ERREUR"
         result["message"] = str(e)[:120]
-        print(f"  ✗ [{id_udv}] {e}")
+        print(f"  ✗ [{id}] {e}")
 
     return result
 
@@ -84,11 +101,11 @@ async def main():
     df = pd.read_csv(DATA_SOURCE, dtype=str)
     df.columns = df.columns.str.strip().str.lower()
 
-    if "id_udv" not in df.columns:
-        print("⚠ Colonne 'id_udv' introuvable dans le CSV — arrêt.")
+    if "id" not in df.columns:
+        print("⚠ Colonne 'id' introuvable dans le CSV — arrêt.")
         return
 
-    df = df.dropna(subset=["id_udv"])
+    df = df.dropna(subset=["id"])
 
     if TEST_MODE:
         df = df.head(1)
@@ -104,9 +121,9 @@ async def main():
         page    = await context.new_page()
 
         for _, row in df.iterrows():
-            id_udv = str(row["id_udv"]).strip()
-            print(f"\n→ Traitement UDV {id_udv}")
-            result = await process_udv(page, id_udv, email)
+            id = str(row["id"]).strip()
+            print(f"\n→ Traitement UDV {id}")
+            result = await process_udv(page, id, email)
             results.append(result)
             await asyncio.sleep(1.0)
 
@@ -114,7 +131,7 @@ async def main():
         await browser.close()
 
     with open(LOG_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["id_udv", "email", "status", "message"])
+        writer = csv.DictWriter(f, fieldnames=["id", "email", "status", "message"])
         writer.writeheader()
         writer.writerows(results)
 

@@ -163,15 +163,79 @@ body {
   color: #e2e8f0;
 }
 
+/* ── Session badge ─────────────────────────────────────────────────────────── */
+.session-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: .72rem;
+  font-weight: 600;
+  border: 1px solid #334155;
+  white-space: nowrap;
+}
+.session-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.session-badge.green { border-color: #059669; color: #34d399; }
+.session-badge.green .session-dot { background: #34d399; box-shadow: 0 0 6px #34d399; }
+.session-badge.red   { border-color: #dc2626; color: #f87171; }
+.session-badge.red   .session-dot { background: #f87171; box-shadow: 0 0 6px #f87171; }
+.session-badge.grey  { border-color: #334155; color: #64748b; }
+.session-badge.grey  .session-dot { background: #475569; }
+
+.btn-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: .78rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid #f59e0b;
+  background: rgba(245,158,11,.12);
+  color: #fbbf24;
+  transition: background .15s;
+}
+.btn-session:hover { background: rgba(245,158,11,.25); }
+
+.btn-session-refresh {
+  background: transparent;
+  border: 1px solid #334155;
+  color: #64748b;
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: .78rem;
+  transition: color .15s, border-color .15s;
+}
+.btn-session-refresh:hover { color: #94a3b8; border-color: #475569; }
+
+.btn-run.disabled, .btn-run[disabled] {
+  opacity: .35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 /* ── Detail body ───────────────────────────────────────────────────────────── */
+#view-detail { overflow-x: hidden; }
+
 .detail-body {
   display: grid;
-  grid-template-columns: 380px 1fr;
+  grid-template-columns: 360px 1fr;
   gap: 24px;
   padding: 24px 40px 40px;
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
+  min-width: 0;
 }
+/* Empêche la colonne résultats (1fr) de faire déborder le grid */
+.detail-body > div:last-child { min-width: 0; }
+
 @media (max-width: 900px) {
   .detail-body { grid-template-columns: 1fr; }
 }
@@ -182,7 +246,9 @@ body {
   border: 1px solid #334155;
   border-radius: 16px;
   overflow: hidden;
+  min-width: 0;
 }
+.results-panel .panel-body { overflow-x: auto; }
 .panel-header {
   padding: 16px 20px;
   border-bottom: 1px solid #334155;
@@ -331,19 +397,20 @@ body {
 .results-table th {
   background: #0f172a;
   color: #64748b;
-  font-size: .68rem;
+  font-size: .66rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .5px;
-  padding: 8px 12px;
+  padding: 7px 10px;
   text-align: left;
   border-bottom: 1px solid #334155;
+  white-space: nowrap;
 }
 .results-table td {
-  padding: 7px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid #1e293b;
   color: #cbd5e1;
-  max-width: 200px;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

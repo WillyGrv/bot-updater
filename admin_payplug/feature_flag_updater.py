@@ -7,7 +7,7 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 from datetime import datetime
 
 LOG_FILE    = f"results/results_feature_flags_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE = False
+TEST_MODE = True
 
 BASE_URL    = "https://admin.payplug.com/companies/{company_ref}/feature-flags"
 FLAG_INPUT  = '#new-flag-name-input'

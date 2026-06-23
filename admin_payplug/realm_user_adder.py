@@ -10,7 +10,7 @@ from datetime import datetime
 DATA_SOURCE = "input/realm_users.csv"
 BASE_URL    = "https://admin.payplug.com/realm-companies?realm_ref={realm_id}"
 LOG_FILE    = f"results/results_realm_users_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE = False
+TEST_MODE = True
 
 SEL_CHANGE_OWNER_BTN  = 'button[data-e2e="change-owner-button"]'
 SEL_INVITE_NEW_USER   = 'button[data-e2e="change-owner-modal-invite-new-user-button"]'
@@ -122,7 +122,7 @@ async def main():
         page    = await context.new_page()
 
         try:
-            print(f"→ Ouverture du royaume {realm_id}")
+            print(f"ℹ Ouverture du royaume {realm_id}")
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             await asyncio.sleep(3)
 

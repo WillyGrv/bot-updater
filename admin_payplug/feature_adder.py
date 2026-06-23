@@ -11,7 +11,7 @@ from datetime import datetime
 DATA_SOURCE = "input/channel_accounts.csv"
 BASE_URL    = "https://admin.payplug.com/companies/{company_ref}/features"
 LOG_FILE    = f"results/results_features_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE = False
+TEST_MODE = True
 
 SEL_SUBMIT  = 'button[data-e2e="merchant-features-btn-submit"]'
 # ──────────────────────────────────────────────────────────────────────────────

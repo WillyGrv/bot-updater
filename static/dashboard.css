@@ -225,19 +225,19 @@ body {
 #view-detail { overflow-x: hidden; }
 
 .detail-body {
-  display: grid;
-  grid-template-columns: 360px 1fr;
+  display: flex;
   gap: 24px;
   padding: 24px 40px 40px;
-  max-width: 1400px;
+  max-width: 1200px;
   margin: 0 auto;
-  min-width: 0;
+  align-items: flex-start;
 }
-/* Empêche la colonne résultats (1fr) de faire déborder le grid */
-.detail-body > div:last-child { min-width: 0; }
+.detail-body > .panel:first-child { flex: 1; min-width: 0; }
+#detail-csv-panel { width: 320px; flex-shrink: 0; }
 
 @media (max-width: 900px) {
-  .detail-body { grid-template-columns: 1fr; }
+  .detail-body { flex-direction: column; }
+  #detail-csv-panel { width: 100%; }
 }
 
 /* ── Panel (scripts / results) ─────────────────────────────────────────────── */
@@ -368,60 +368,32 @@ body {
 .btn-run-outline.danger  { border: 1px solid #dc2626; color: #f87171; }
 .btn-run-outline.danger:hover  { background: rgba(220,38,38,.15); }
 
-/* ── CSV section ───────────────────────────────────────────────────────────── */
-.csv-section { margin-top: 10px; }
-
-/* ── Results ───────────────────────────────────────────────────────────────── */
-.results-panel { height: 100%; }
-.results-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 20px;
-  color: #475569;
-  text-align: center;
+/* ── CSV cards ─────────────────────────────────────────────────────────────── */
+.csv-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
-
-.result-file-block { margin-bottom: 24px; }
-.result-file-name {
-  font-size: .78rem;
+.csv-format {
+  font-size: .72rem;
   color: #64748b;
+  margin-top: 4px;
   font-family: 'SF Mono', monospace;
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
-.results-table { font-size: .78rem; width: 100%; border-collapse: collapse; }
-.results-table th {
-  background: #0f172a;
-  color: #64748b;
-  font-size: .66rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .5px;
-  padding: 7px 10px;
-  text-align: left;
-  border-bottom: 1px solid #334155;
-  white-space: nowrap;
-}
-.results-table td {
-  padding: 6px 10px;
-  border-bottom: 1px solid #1e293b;
-  color: #cbd5e1;
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.results-table tr:last-child td { border-bottom: none; }
-.results-table tr.row-ok   td { color: #cbd5e1; }
-.results-table tr.row-err  td { color: #fca5a5; background: rgba(220,38,38,.05); }
-.results-table tr:hover td { background: rgba(255,255,255,.03); }
 
-.badge-ok  { background: rgba(5,150,105,.2);  color: #34d399; border-radius:20px; padding:2px 8px; font-size:.72rem; font-weight:600; }
-.badge-err { background: rgba(220,38,38,.2);  color: #f87171; border-radius:20px; padding:2px 8px; font-size:.72rem; font-weight:600; }
+/* ── File-ref pills (script → csv) ────────────────────────────────────────── */
+.file-ref-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: .65rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  border: 1px solid;
+  white-space: nowrap;
+}
 
 /* ── Terminal (output modal) ───────────────────────────────────────────────── */
 .terminal {

@@ -9,7 +9,7 @@ from datetime import datetime
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
 DATA_SOURCE  = "input/channel_accounts.csv"
 LOG_FILE     = f"results/results_channel_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE = False
+TEST_MODE = True
 
 BASE_URL     = "https://admin.payplug.com/companies/{company_ref}/channels"
 

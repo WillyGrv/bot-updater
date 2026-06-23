@@ -57,39 +57,20 @@
 
   <div class="detail-body">
 
-    <!-- Colonne gauche : scripts + CSV -->
-    <div>
-      <div class="panel">
-        <div class="panel-header">
-          <span><i class="bi bi-play-circle me-2"></i>Scripts</span>
-        </div>
-        <div class="panel-body" id="detail-scripts"></div>
+    <!-- Scripts -->
+    <div class="panel">
+      <div class="panel-header">
+        <span><i class="bi bi-play-circle me-2"></i>Scripts</span>
       </div>
-
-      <div class="panel mt-4" id="detail-csv-panel" style="display:none;">
-        <div class="panel-header">
-          <span><i class="bi bi-file-earmark-spreadsheet me-2"></i>Fichiers CSV</span>
-        </div>
-        <div class="panel-body" id="detail-csvs"></div>
-      </div>
+      <div class="panel-body" id="detail-scripts"></div>
     </div>
 
-    <!-- Colonne droite : résultats -->
-    <div>
-      <div class="panel results-panel">
-        <div class="panel-header">
-          <span><i class="bi bi-table me-2"></i>Derniers résultats</span>
-          <button onclick="refreshResults()" style="background:transparent; border:1px solid #334155; color:#94a3b8; border-radius:6px; padding:3px 10px; font-size:.72rem; cursor:pointer;">
-            <i class="bi bi-arrow-clockwise me-1"></i>Actualiser
-          </button>
-        </div>
-        <div class="panel-body" id="detail-results">
-          <div class="results-empty">
-            <i class="bi bi-inbox fs-1 d-block mb-2 opacity-25"></i>
-            Chargement...
-          </div>
-        </div>
+    <!-- Fichiers CSV -->
+    <div class="panel" id="detail-csv-panel" style="display:none;">
+      <div class="panel-header">
+        <span><i class="bi bi-file-earmark-spreadsheet me-2"></i>Fichiers CSV</span>
       </div>
+      <div class="panel-body" id="detail-csvs"></div>
     </div>
 
   </div>
@@ -268,8 +249,20 @@
 
     // Scripts (login.py exclu — déplacé dans le header)
     let scriptsHtml = '';
+    const allCsvs = bot.editable_csvs || [];
     bot.scripts.filter(s => s.file !== 'login.py').forEach(script => {
       const paramsAttr = script.params ? `data-params="${JSON.stringify(script.params).replace(/"/g, '&quot;')}"` : '';
+
+      // Détecte les CSV utilisés par ce script via le nom de fichier dans les inputs
+      const fileRefs = allCsvs.filter(csv => {
+        const basename = csv.file.split('/').pop().toLowerCase();
+        return (script.inputs || []).some(inp => inp.toLowerCase().includes(basename));
+      });
+      const fileRefHtml = fileRefs.length ? `
+        <div class="d-flex flex-wrap gap-1 mt-2">
+          ${fileRefs.map(csv => `<span class="file-ref-pill" style="border-color:${csv.color};background:${csv.color}18;color:${csv.color};"><i class="bi bi-file-earmark-spreadsheet" style="font-size:.6rem;"></i>&nbsp;${csv.label}</span>`).join('')}
+        </div>` : '';
+
       scriptsHtml += `
         <div class="script-item">
           <div class="script-content">
@@ -277,6 +270,7 @@
             <div class="script-file">${script.file}</div>
             <div class="script-desc">${script.description}</div>
             ${script.warning ? `<div class="script-warning"><i class="bi bi-exclamation-triangle-fill me-1"></i>${script.warning}</div>` : ''}
+            ${fileRefHtml}
             ${(script.inputs || []).length || (script.outputs || []).length ? `
               <div class="d-flex flex-wrap gap-1 mt-2">
                 ${(script.inputs  || []).map(i => `<span class="badge badge-input  rounded-pill"><i class="bi bi-arrow-right-short"></i>${i}</span>`).join('')}
@@ -303,12 +297,16 @@
       csvPanel.style.display = 'block';
       let csvHtml = '';
       bot.editable_csvs.forEach(csv => {
+        const color = csv.color || '#64748b';
         csvHtml += `
           <div class="script-item">
             <div class="script-content">
-              <div class="script-name">${csv.label}</div>
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="csv-dot" style="background:${color};"></span>
+                <div class="script-name">${csv.label}</div>
+              </div>
               <div class="script-file">${csv.file}</div>
-              <div class="script-desc">Éditer directement — copier-coller depuis Excel ou texte brut.</div>
+              ${csv.format ? `<div class="csv-format"><i class="bi bi-columns me-1"></i>${csv.format}</div>` : ''}
             </div>
             <div class="script-action">
               <button class="btn-run-outline ${bot.color}" onclick="openCsvEditor('${bot.id}', '${csv.file}', '${csv.label}')">
@@ -322,8 +320,6 @@
       csvPanel.style.display = 'none';
     }
 
-    // Résultats
-    loadResults(botId);
   }
 
   function closeBot() {
@@ -735,7 +731,6 @@
           if (data.done) {
             clearInterval(pollInterval);
             setStatus(data.rc === 0 ? 'success' : 'error', data.rc);
-            if (activeBotId) setTimeout(() => loadResults(activeBotId), 1500);
           }
         });
     }, 800);
@@ -763,7 +758,7 @@
     for (const line of lines) {
       const m = line.match(/\[(?:PROD|MODE TEST)\]\s+(\d+)\s/);
       if (m) total = parseInt(m[1]);
-      if (/^\s*→\s/.test(line)) current++;
+      if (/^→\s/.test(line)) current++;
     }
     if (total === null) return;
     const pct  = Math.min(100, Math.round((current / total) * 100));
@@ -772,62 +767,6 @@
     document.getElementById('progressTotal').textContent     = total;
     document.getElementById('progressPct').textContent       = `(${pct}%)`;
     document.getElementById('progressBar').style.width       = pct + '%';
-  }
-
-  // ── Results ────────────────────────────────────────────────────────────────
-  function loadResults(botId) {
-    const el = document.getElementById('detail-results');
-    el.innerHTML = '<div class="results-empty"><div class="spinner-border spinner-border-sm text-secondary"></div></div>';
-
-    fetch('/api/results/' + botId)
-      .then(r => r.json())
-      .then(files => {
-        if (!files.length) {
-          el.innerHTML = '<div class="results-empty"><i class="bi bi-inbox fs-1 d-block mb-2 opacity-25"></i>Aucun résultat</div>';
-          return;
-        }
-        let html = '';
-        files.forEach((f, fi) => {
-          const okCount  = f.rows.filter(r => (r.status || '').toUpperCase() === 'OK').length;
-          const errCount = f.rows.length - okCount;
-          const collapseId = 'collapse_' + fi;
-          html += `
-            <div class="result-file-block">
-              <div class="result-file-name">
-                <button data-bs-toggle="collapse" data-bs-target="#${collapseId}"
-                        style="background:none;border:none;padding:0;color:#64748b;font-family:inherit;font-size:inherit;cursor:pointer;">
-                  <i class="bi bi-chevron-down me-1" style="font-size:.65rem;"></i>${f.name}
-                </button>
-                <span class="badge-ok">${okCount} OK</span>
-                ${errCount > 0 ? `<span class="badge-err">${errCount} err.</span>` : ''}
-                <span style="color:#475569; font-size:.72rem;">${f.rows.length} lignes</span>
-              </div>
-              <div class="collapse show" id="${collapseId}">
-                <div style="overflow-x:auto; border-radius:8px; border:1px solid #334155;">
-                  <table class="results-table">
-                    <thead><tr>${f.headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
-                    <tbody>
-                      ${f.rows.map(row => {
-                        const st  = (row.status || '').toUpperCase();
-                        const cls = st.includes('ERREUR') ? 'row-err' : 'row-ok';
-                        return `<tr class="${cls}">${f.headers.map(h => {
-                          const val = row[h] || '';
-                          return `<td title="${val.replace(/"/g,'&quot;')}">${val.length > 50 ? val.substring(0,50)+'…' : val}</td>`;
-                        }).join('')}</tr>`;
-                      }).join('')}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>`;
-        });
-        el.innerHTML = html;
-      })
-      .catch(() => { el.innerHTML = '<div class="results-empty text-danger">Erreur de chargement</div>'; });
-  }
-
-  function refreshResults() {
-    if (activeBotId) loadResults(activeBotId);
   }
 
   // ── radio_with_sub helper ──────────────────────────────────────────────────

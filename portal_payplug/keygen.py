@@ -3,6 +3,7 @@ import base64
 import csv
 import json
 import os
+import sys
 import requests
 import pandas as pd
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
@@ -13,7 +14,7 @@ DATA_SOURCE  = "input/keygen_accounts.csv"
 SESSION_FILE = "session.json"
 KEYS_URL     = "https://portal.payplug.com/#/configuration/connection/keys"
 LOG_FILE     = f"results/results_payplug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE = True
+TEST_MODE = False
 
 ACCOUNT_SWITCHER_TRIGGER = "[data-e2e='account-switcher']"
 
@@ -105,25 +106,30 @@ def decode_jwt_company_ref(token: str) -> tuple[str, dict]:
 
 
 def ask_config() -> tuple[str, str]:
-    """Demande le type de clé et l'environnement au démarrage.
-    En mode dashboard (stdin fermé), utilise les valeurs DEFAULT_*."""
-    try:
+    """Retourne (key_type, environment).
+    - Terminal (TTY) : prompts interactifs
+    - Dashboard/pipe : ligne 1 = key_type (1/2), ligne 2 = environment (1/2)
+    """
+    if sys.stdin.isatty():
         print("─────────────────────────────────────────────")
         print("CONFIGURATION")
         print("─────────────────────────────────────────────")
-        kt = input("Type de clé   — [1] OAuth2  [2] API Key  (défaut: 1) : ").strip()
-        key_type = "api_key" if kt == "2" else "oauth2"
-
+        kt  = input("Type de clé   — [1] OAuth2  [2] API Key  (défaut: 1) : ").strip()
         env = input("Environnement — [1] Test    [2] Live     (défaut: 1) : ").strip()
-        environment = "live" if env == "2" else "test"
-
+        key_type    = "api_key" if kt  == "2" else "oauth2"
+        environment = "live"    if env == "2" else "test"
         print(f"\n→ Type : {key_type.upper()}  |  Env : {environment.upper()}")
         print("─────────────────────────────────────────────\n")
         return key_type, environment
-
+    try:
+        kt  = input().strip()
+        env = input().strip()
     except EOFError:
-        print(f"Mode dashboard — config par défaut : {DEFAULT_KEY_TYPE.upper()} / {DEFAULT_ENVIRONMENT.upper()}\n")
         return DEFAULT_KEY_TYPE, DEFAULT_ENVIRONMENT
+    key_type    = "api_key" if kt  == "2" else "oauth2"
+    environment = "live"    if env == "2" else "test"
+    print(f"  ✓ Type : {key_type.upper()}  |  Env : {environment.upper()}\n")
+    return key_type, environment
 
 
 def load_session(path: str) -> dict:
@@ -162,7 +168,7 @@ async def switch_account(page, company_ref: str):
 async def generate_key(page, company_ref: str, key_name: str, account_name: str,
                        key_type: str, environment: str) -> dict:
     result = {
-        "company_ref":    company_ref,
+        "company_ref":   company_ref,
         "account_name":  account_name,
         "key_name":      key_name,
         "key_type":      key_type,
@@ -170,7 +176,6 @@ async def generate_key(page, company_ref: str, key_name: str, account_name: str,
         "client_id":     "",
         "client_secret": "",
         "api_key":       "",
-        "company_ref":   "",
         "jwt_token":     "",
         "status":        "",
         "message":       "",
@@ -361,8 +366,7 @@ async def main():
             "company_ref", "account_name", "key_name",
             "key_type", "environment",
             "client_id", "client_secret", "api_key",
-            "company_ref", "jwt_token",
-            "status", "message",
+            "jwt_token", "status", "message",
         ])
         writer.writeheader()
         writer.writerows(results)

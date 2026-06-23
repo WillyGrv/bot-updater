@@ -10,7 +10,7 @@ from datetime import datetime
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
 DATA_SOURCE = "input/data.csv"
 LOG_FILE    = f"results/results_comments_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE = False
+TEST_MODE = True
 
 SEL_TEXTAREA  = "#new-comment"
 SEL_SUBMIT    = "form#add-comment input[type='submit']"

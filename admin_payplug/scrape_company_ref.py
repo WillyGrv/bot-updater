@@ -7,7 +7,7 @@ from datetime import datetime
 
 DATA_SOURCE       = "input/data.csv"
 LOG_FILE          = f"results/company_refs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE = False
+TEST_MODE = True
 
 COMPANY_REF_SELECTOR = 'code[data-e2e="companyRef"]'
 

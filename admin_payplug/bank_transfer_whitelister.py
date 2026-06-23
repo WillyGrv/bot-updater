@@ -8,30 +8,46 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 from datetime import datetime
 
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
-DATA_SOURCE  = "input/data.csv"
-BASE_URL     = "https://internal-payment.gcp.dlns.io/intranet/admin/udvs/password?idUdv={idUdv}"
-EMAIL_FIELD  = "input[name='passwordRecovery[email]']"
-SUBMIT_BTN   = "input[type='submit'][name='submit']"
-LOG_FILE     = f"results/results_cockpit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE = False
+DATA_SOURCE = "input/bank_transfer_ids.csv"
+BASE_URL    = "https://admin.payplug.com/admin/bank/transfers/{id}"
+LOG_FILE    = f"results/results_whitelist_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+TEST_MODE = True
+
+SEL_EDIT_BTN   = "#edit-company-toggle-button"
+SEL_RADIO_WL   = 'input[name="frozen_or_whitelisted_status"][value="whitelisted"]'
+SEL_DATE_INPUT = 'input[name="whitelisted_until"]'
+SEL_SUBMIT     = "#edit-company-submit"
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def ask_email() -> str:
+def ask_config() -> str:
+    """Retourne la date whitelist (AAAA-MM-JJ).
+    - Terminal (TTY) : prompt interactif
+    - Dashboard/pipe : 1 ligne
+    """
     if sys.stdin.isatty():
         print("─────────────────────────────────────────────")
         print("CONFIGURATION")
         print("─────────────────────────────────────────────")
-        email = input("  Email à saisir pour chaque UDV : ").strip()
+        date = input("  Date Whitelist (AAAA-MM-JJ) : ").strip()
         print("─────────────────────────────────────────────\n")
-        return email
+        return date
     try:
-        email = input().strip()
-        print(f"  ✓ Email : {email}\n")
-        return email
-    except EOFError as e:
-        print(f"⚠ Aucun email reçu ({e})\n")
+        date = input().strip()
+        print(f"  ✓ Date : {date}\n")
+        return date
+    except EOFError:
         return ""
+
+
+def load_session(path: str) -> dict:
+    with open(path, encoding="utf-8") as f:
+        session = json.load(f)
+    for origin in session.get("origins", []):
+        for item in origin.get("localStorage", []):
+            if not isinstance(item.get("value"), str):
+                item["value"] = json.dumps(item["value"])
+    return session
 
 
 async def _screenshot_timeout(page, identifier: str) -> None:
@@ -49,53 +65,55 @@ async def _screenshot_timeout(page, identifier: str) -> None:
         print(f"  ⚠ Capture debug échouée : {dbg_err}")
 
 
-def load_session(path: str) -> dict:
-    with open(path, encoding="utf-8") as f:
-        session = json.load(f)
-    for origin in session.get("origins", []):
-        for item in origin.get("localStorage", []):
-            if not isinstance(item.get("value"), str):
-                item["value"] = json.dumps(item["value"])
-    return session
-
-
-async def process_udv(page, id: str, email: str) -> dict:
-    result = {"id": id, "email": email, "status": "", "message": ""}
-    url    = BASE_URL.format(idUdv=id)
+async def whitelist_transfer(page, row_id: str, date: str) -> dict:
+    url    = BASE_URL.format(id=row_id)
+    result = {"id": row_id, "url": url, "date": date, "status": "", "message": ""}
 
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-        await page.wait_for_selector(EMAIL_FIELD, timeout=8000)
 
-        await page.fill(EMAIL_FIELD, "")
-        await page.fill(EMAIL_FIELD, email)
-        print(f"  ✓ [{id}] Email saisi : {email}")
+        # Cliquer sur "éditer"
+        await page.wait_for_selector(SEL_EDIT_BTN, timeout=8000)
+        await page.click(SEL_EDIT_BTN)
 
-        await page.click(SUBMIT_BTN)
+        # Sélectionner le radio "whitelisted"
+        await page.wait_for_selector(SEL_RADIO_WL, timeout=8000)
+        await page.click(SEL_RADIO_WL)
+
+        # Remplir la date — Tab pour fermer le datepicker et valider la valeur
+        await page.wait_for_selector(SEL_DATE_INPUT, timeout=8000)
+        await page.fill(SEL_DATE_INPUT, "")
+        await page.fill(SEL_DATE_INPUT, date)
+        await page.press(SEL_DATE_INPUT, "Tab")
+        await asyncio.sleep(0.3)
+
+        # Soumettre
+        await page.click(SEL_SUBMIT)
         await page.wait_for_load_state("domcontentloaded", timeout=10000)
 
         result["status"] = "OK"
-        print(f"  ✓ [{id}] Submit envoyé")
+        print(f"  ✓ [{row_id}] Whitelist jusqu'au {date}")
 
     except PlaywrightTimeout as e:
         result["status"]  = "ERREUR_TIMEOUT"
         result["message"] = str(e)[:120]
-        print(f"  ✗ [{id}] Timeout : {e}")
-        await _screenshot_timeout(page, id)
+        print(f"  ✗ [{row_id}] Timeout : {str(e)[:80]}")
+        await _screenshot_timeout(page, row_id)
 
     except Exception as e:
         result["status"]  = "ERREUR"
         result["message"] = str(e)[:120]
-        print(f"  ✗ [{id}] {e}")
+        print(f"  ✗ [{row_id}] {str(e)[:80]}")
 
     return result
 
 
 async def main():
     os.makedirs("results", exist_ok=True)
-    email = ask_email()
-    if not email:
-        print("Aucun email fourni — arrêt.")
+
+    date = ask_config()
+    if not date:
+        print("⚠ Date non renseignée — arrêt.")
         return
 
     print("Chargement du CSV...")
@@ -112,7 +130,7 @@ async def main():
         df = df.head(1)
         print(f"[MODE TEST] 1 seule ligne traitée.\n")
     else:
-        print(f"[PROD] {len(df)} UDVs à traiter.\n")
+        print(f"[PROD] {len(df)} lignes à traiter.\n")
 
     results = []
 
@@ -122,17 +140,17 @@ async def main():
         page    = await context.new_page()
 
         for _, row in df.iterrows():
-            id = str(row["id"]).strip()
-            print(f"\n→ Traitement UDV {id}")
-            result = await process_udv(page, id, email)
+            row_id = str(row["id"]).strip()
+            print(f"\n→ Traitement {row_id}")
+            result = await whitelist_transfer(page, row_id, date)
             results.append(result)
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(1.5)
 
         await context.close()
         await browser.close()
 
     with open(LOG_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["id", "email", "status", "message"])
+        writer = csv.DictWriter(f, fieldnames=["id", "url", "date", "status", "message"])
         writer.writeheader()
         writer.writerows(results)
 

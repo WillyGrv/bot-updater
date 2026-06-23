@@ -52,7 +52,7 @@ BOTS = [
                 "params": [
                     {
                         "id":      "target",
-                        "type":    "select",
+                        "type":    "radio",
                         "label":   "Donnée à scraper",
                         "options": [
                             {"value": "company_ref",    "label": "Company Ref"},
@@ -67,7 +67,7 @@ BOTS = [
                 "file":        "feature_flag_updater.py",
                 "name":        "Ajouter un Feature Flag",
                 "description": "Crée le feature flag sur chaque compte — depuis un fichier company_refs ou l'Input - Company_ref.",
-                "inputs":      ["company_refs_XXXXXX.csv ou Input - Company_ref", "session.json"],
+                "inputs":      ["company_refs_XXXXXX.csv ou channel_accounts.csv", "session.json"],
                 "outputs":     ["results_feature_flags_XXXXXX.csv"],
                 "params": [
                     {
@@ -136,6 +136,17 @@ BOTS = [
                                 "placeholder": "ex: 12345",
                             },
                             {
+                                "id":         "type",
+                                "label":      "Type",
+                                "field_type": "select",
+                                "value_mode": "fixed",
+                                "options": [
+                                    {"value": "-50", "label": "Test (en prod)"},
+                                    {"value": "0",   "label": "Default"},
+                                    {"value": "50",  "label": "Marchand GM"},
+                                ],
+                            },
+                            {
                                 "id":         "account_manager",
                                 "label":      "Account Manager",
                                 "field_type": "select",
@@ -190,7 +201,7 @@ BOTS = [
                 "file":        "feature_adder.py",
                 "name":        "Ajout de fonctionnalité",
                 "description": "Coche les fonctionnalités sélectionnées pour chaque company_ref du CSV, puis valide.",
-                "inputs":      ["Input - Company_ref (colonnes : id, company_ref)", "session.json"],
+                "inputs":      ["channel_accounts.csv (colonnes : id, company_ref)", "session.json"],
                 "outputs":     ["results/results_features_XXXXXX.csv"],
                 "params": [
                     {
@@ -252,14 +263,30 @@ BOTS = [
                     },
                 ],
             },
+            {
+                "file":        "bank_transfer_whitelister.py",
+                "name":        "Whitelist date de transfer status",
+                "description": "Pour chaque ID du CSV, ouvre la fiche transfer, sélectionne 'whitelisted' et applique la date saisie.",
+                "inputs":      ["input/bank_transfer_ids.csv (colonne : id)", "session.json"],
+                "outputs":     ["results/results_whitelist_XXXXXX.csv"],
+                "params": [
+                    {
+                        "id":          "date",
+                        "type":        "text",
+                        "label":       "Date Whitelist (AAAA-MM-JJ)",
+                        "placeholder": "ex: 2026-12-31",
+                    },
+                ],
+            },
         ],
         "session_check":   {"url": "https://admin.payplug.com/admin/companies", "login_patterns": ["login"], "body_patterns": ['name="password"', 'name="email"']},
         "results_globs":   ["results/results_*.csv", "results/company_refs_*.csv", "results/raison_sociale_*.csv", "results/siret_*.csv", "results/results_channel_*.csv", "results/results_features_*.csv", "results/results_realm_users_*.csv", "results/results_realm_owners_*.csv"],
         "editable_csvs":   [
-            {"file": "input/data.csv",             "label": "input/data.csv — urls à traiter"},
-            {"file": "input/channel_accounts.csv", "label": "Input - Company_ref"},
-            {"file": "input/realm_users.csv",      "label": "input/realm_users.csv — emails à inviter"},
-            {"file": "input/realm_owners.csv",     "label": "input/realm_owners.csv — company_ref + email propriétaire"},
+            {"file": "input/data.csv",                 "label": "Data.csv",                 "format": "id, url",            "color": "#3b82f6"},
+            {"file": "input/channel_accounts.csv",     "label": "Channel accounts.csv",     "format": "id, company_ref",    "color": "#a855f7"},
+            {"file": "input/realm_users.csv",          "label": "Realm users.csv",          "format": "email",              "color": "#14b8a6"},
+            {"file": "input/realm_owners.csv",         "label": "Realm owners.csv",         "format": "company_ref, email", "color": "#f97316"},
+            {"file": "input/bank_transfer_ids.csv",    "label": "Bank transfer IDs.csv",    "format": "id",                 "color": "#f43f5e"},
         ],
         "test_mode_script": "admin_field_updater.py",
     },
@@ -280,7 +307,7 @@ BOTS = [
                 "params": [
                     {
                         "id":      "env",
-                        "type":    "select",
+                        "type":    "radio",
                         "label":   "Environnement",
                         "options": [
                             {"value": "prod",    "label": "Production — payplug.solvimon.com"},
@@ -299,6 +326,7 @@ BOTS = [
                 "params": [
                     {
                         "id":      "env",
+                        "type":    "radio",
                         "label":   "Environnement",
                         "options": [
                             {"value": "prod",    "label": "Production — payplug.solvimon.com"},
@@ -323,6 +351,7 @@ BOTS = [
                 "params": [
                     {
                         "id":      "env",
+                        "type":    "radio",
                         "label":   "Environnement",
                         "options": [
                             {"value": "prod",    "label": "Production — payplug.solvimon.com"},
@@ -341,8 +370,8 @@ BOTS = [
         ],
         "results_globs":    ["results/results_solvimon_*.csv", "results/results_create_customers_*.csv"],
         "editable_csvs":    [
-            {"file": "customers.csv",        "label": "customers.csv — customer IDs"},
-            {"file": "input/admin_ids.csv",  "label": "input/admin_ids.csv — IDs admin à scraper"},
+            {"file": "customers.csv",       "label": "Customers.csv",  "format": "customer_id", "color": "#10b981"},
+            {"file": "input/admin_ids.csv", "label": "Admin IDs.csv",  "format": "id",          "color": "#6366f1"},
         ],
         "test_mode_script": "solvimon_bulk_subscriptions.py",
     },
@@ -358,9 +387,16 @@ BOTS = [
                 "file":        "login.py",
                 "name":        "Sauvegarder la session Cockpit",
                 "description": "Sauvegarde les cookies de session Cockpit.",
-                "warning":     "Interaction manuelle requise dans Chromium.",
+                "warning":     "Connexion manuelle dans Chromium, sauf si des identifiants sont fournis ci-dessous.",
                 "inputs":      [],
                 "outputs":     ["session.json"],
+                "params": [
+                    {
+                        "id":    "credentials",
+                        "type":  "credentials",
+                        "label": "Identifiants de connexion (optionnel)",
+                    },
+                ],
             },
             {
                 "file":        "cockpit_mid_updater.py",
@@ -413,7 +449,7 @@ BOTS = [
         ],
         "session_check":    {"url": None},
         "results_globs":    ["results/results_cockpit_*.csv", "results/results_mid_updater_*.csv", "results/results_mid_siret_*.csv"],
-        "editable_csvs":    [{"file": "input/data.csv", "label": "input/data.csv — IDs"}],
+        "editable_csvs":    [{"file": "input/data.csv", "label": "Data.csv", "format": "id", "color": "#ef4444"}],
         "test_mode_script": "cockpit_identifier.py",
     },
     {
@@ -428,9 +464,16 @@ BOTS = [
                 "file":        "login.py",
                 "name":        "Sauvegarder la session PayPlug",
                 "description": "Sauvegarde les cookies de session PayPlug.",
-                "warning":     "Interaction manuelle requise dans Chromium.",
+                "warning":     "Connexion manuelle dans Chromium, sauf si des identifiants sont fournis ci-dessous.",
                 "inputs":      [],
                 "outputs":     ["session.json"],
+                "params": [
+                    {
+                        "id":    "credentials",
+                        "type":  "credentials",
+                        "label": "Identifiants de connexion (optionnel)",
+                    },
+                ],
             },
             {
                 "file":        "keygen.py",
@@ -441,6 +484,7 @@ BOTS = [
                 "params": [
                     {
                         "id":      "key_type",
+                        "type":    "radio",
                         "label":   "Type de clé",
                         "options": [
                             {"value": "1", "label": "OAuth2 — Client ID + Secret"},
@@ -450,6 +494,7 @@ BOTS = [
                     },
                     {
                         "id":      "environment",
+                        "type":    "radio",
                         "label":   "Environnement",
                         "options": [
                             {"value": "1", "label": "Test"},
@@ -468,6 +513,7 @@ BOTS = [
                 "params": [
                     {
                         "id":      "action",
+                        "type":    "radio",
                         "label":   "Action",
                         "options": [
                             {"value": "activate",   "label": "Activer"},
@@ -502,8 +548,8 @@ BOTS = [
         "session_check":    {"url": "https://portal.payplug.com/api/v1/user", "login_patterns": ["login", "401"], "body_patterns": ['type="password"']},
         "results_globs":    ["results/results_payplug_*.csv", "results/results_bank_transfer_*.csv", "results/results_notifications_*.csv"],
         "editable_csvs":    [
-            {"file": "input/keygen_accounts.csv",        "label": "input/keygen_accounts.csv — comptes API Keygen"},
-            {"file": "input/bank_transfer_accounts.csv", "label": "input/bank_transfer_accounts.csv — comptes Virements"},
+            {"file": "input/keygen_accounts.csv",        "label": "Keygen accounts.csv",        "format": "company_ref, account_name, key_name", "color": "#f59e0b"},
+            {"file": "input/bank_transfer_accounts.csv", "label": "Bank transfer accounts.csv", "format": "company_ref, account_name",           "color": "#ec4899"},
         ],
         "test_mode_script": "keygen.py",
     },
@@ -731,7 +777,7 @@ def get_results(bot_id):
     if not bot:
         return jsonify([])
 
-    all_files: list = []
+    all_files = []
     for pattern in bot["results_globs"]:
         all_files.extend(glob(str(BASE_DIR / bot_id / pattern)))
 

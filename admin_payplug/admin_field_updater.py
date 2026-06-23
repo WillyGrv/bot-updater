@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import json
+import os
 import sys
 import pandas as pd
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
@@ -16,7 +17,7 @@ SEL_COMMENT_SUBMIT    = "form#add-comment input[type='submit']"
 SEL_COMMENT_LOG_LIST  = "#all-logs"
 SEL_COMMENT_FIRST_PIN = "#all-logs .company-log:first-child i.pin"
 LOG_FILE    = f"results/results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE = False
+TEST_MODE = True
 
 # ── Champs disponibles ─────────────────────────────────────────────────────────
 # value_mode: "fixed"   → même valeur pour toutes les lignes (saisie au démarrage)
@@ -60,6 +61,18 @@ AVAILABLE_FIELDS = {
         "field_type": "text",
         "value_mode": "dynamic",
         "csv_column": "siret",
+    },
+    "type": {
+        "label":      "Type",
+        "selector":   "select[name='type']",
+        "field_type": "select",
+        "value_mode": "fixed",
+        "csv_column": None,
+        "options": [
+            {"value": "-50", "label": "Test (en prod)"},
+            {"value": "0",   "label": "Default"},
+            {"value": "50",  "label": "Marchand GM"},
+        ],
     },
     "account_manager": {
         "label":      "Account Manager",
@@ -192,7 +205,6 @@ def ask_config() -> list:
 
 
 async def _screenshot_timeout(page, identifier: str) -> None:
-    import os
     os.makedirs("screenshots", exist_ok=True)
     try:
         path_png = f"screenshots/timeout_{identifier}.png"
@@ -327,7 +339,7 @@ async def update_page(page, url: str, row_id: str, field_ops: list, row_data: di
 
 
 async def main():
-    import os; os.makedirs("results", exist_ok=True)
+    os.makedirs("results", exist_ok=True)
     field_ops = ask_config()
     if not field_ops:
         print("Aucun champ sélectionné — arrêt.")

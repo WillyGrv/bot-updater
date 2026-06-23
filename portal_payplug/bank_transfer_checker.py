@@ -19,7 +19,6 @@ CONFIRM_BTN_SEL          = "button[data-e2e='transferModal-submit-button']"
 
 
 async def _screenshot_timeout(page, identifier: str) -> None:
-    import os
     os.makedirs("screenshots", exist_ok=True)
     try:
         path_png = f"screenshots/timeout_{identifier}.png"

@@ -9,7 +9,7 @@ from datetime import datetime
 
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
 DATA_SOURCE = "input/data.csv"
-TEST_MODE = False
+TEST_MODE = True
 
 SCRAP_TARGETS = {
     "company_ref": {

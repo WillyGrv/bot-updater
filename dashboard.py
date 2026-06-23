@@ -583,8 +583,9 @@ def run_script():
                 stderr=subprocess.STDOUT,
                 stdin=subprocess.PIPE if stdin_input else subprocess.DEVNULL,
                 text=True,
+                encoding="utf-8",
                 bufsize=1,
-                env={**os.environ, "PYTHONUNBUFFERED": "1"},
+                env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"},
             )
             if stdin_input:
                 proc.stdin.write(stdin_input)

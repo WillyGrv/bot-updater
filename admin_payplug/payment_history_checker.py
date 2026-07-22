@@ -1,19 +1,24 @@
 import asyncio
 import csv
 import json
+import os
 import pandas as pd
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 from datetime import datetime
 
-DATA_SOURCE       = "input/data.csv"
-LOG_FILE          = f"results/company_refs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+# ─── CONFIGURATION ────────────────────────────────────────────────────────────
+DATA_SOURCE = "input/bank_transfer_ids.csv"
+BASE_URL    = "https://admin.payplug.com/admin/history?name={id}"
+LOG_FILE    = f"results/results_payment_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 TEST_MODE = False
 
-COMPANY_REF_SELECTOR = 'code[data-e2e="companyRef"]'
+SEL_DETAIL_LINK = 'table.black-head-tbl tbody tr a[onclick*="openPopDiv"]'
+SEL_NUM_TRANSAC = "#num_transac"
+# Ajouter ici de nouveaux champs à extraire depuis la popup de détail
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 async def _screenshot_timeout(page, identifier: str) -> None:
-    import os
     os.makedirs("screenshots", exist_ok=True)
     try:
         path_png = f"screenshots/timeout_{identifier}.png"
@@ -38,39 +43,62 @@ def load_session(path: str) -> dict:
     return session
 
 
-async def scrape_company_ref(page, url: str, row_id: str) -> dict:
-    result = {"id": row_id, "url": url, "company_ref": "", "status": "", "message": ""}
+async def process_transaction(page, row_id: str) -> dict:
+    url    = BASE_URL.format(id=row_id)
+    result = {"id": row_id, "url": url, "num_transaction": "", "status": "", "message": ""}
+
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-        locator = page.locator(COMPANY_REF_SELECTOR)
-        await locator.wait_for(state="visible", timeout=8000)
-        company_ref = (await locator.inner_text()).strip()
-        result["company_ref"] = company_ref
-        result["status"]      = "OK"
-        print(f"  ✓ [{row_id}] company_ref → {company_ref}")
+
+        detail_link = page.locator(SEL_DETAIL_LINK).first
+        if await detail_link.count() == 0:
+            result["status"] = "INTROUVABLE"
+            print(f"  ⚠ [{row_id}] Aucune transaction trouvée")
+            return result
+
+        await detail_link.click()
+        await page.wait_for_function(
+            "document.querySelector('#num_transac') && document.querySelector('#num_transac').textContent.trim().length > 0",
+            timeout=8000,
+        )
+
+        num_transaction = (await page.locator(SEL_NUM_TRANSAC).first.inner_text()).strip()
+        result["num_transaction"] = num_transaction
+        result["status"] = "OK"
+        print(f"  ✓ [{row_id}] N° transaction : {num_transaction}")
+
     except PlaywrightTimeout as e:
         result["status"]  = "ERREUR_TIMEOUT"
         result["message"] = str(e)[:120]
-        print(f"  ✗ [{row_id}] Timeout : {e}")
+        print(f"  ✗ [{row_id}] Timeout : {str(e)[:80]}")
         await _screenshot_timeout(page, row_id)
+
     except Exception as e:
         result["status"]  = "ERREUR"
         result["message"] = str(e)[:120]
-        print(f"  ✗ [{row_id}] {e}")
+        print(f"  ✗ [{row_id}] {str(e)[:80]}")
+
     return result
 
 
 async def main():
-    import os; os.makedirs("results", exist_ok=True)
+    os.makedirs("results", exist_ok=True)
+
     print("Chargement du CSV...")
     df = pd.read_csv(DATA_SOURCE, dtype=str)
     df.columns = df.columns.str.strip().str.lower()
 
+    if "id" not in df.columns:
+        print("⚠ Colonne 'id' introuvable dans le CSV — arrêt.")
+        return
+
+    df = df.dropna(subset=["id"])
+
     if TEST_MODE:
         df = df.head(1)
-        print("[MODE TEST] 1 seule ligne traitée.\n")
+        print(f"[MODE TEST] 1 seule ligne traitée.\n")
     else:
-        print(f"[PROD] {len(df)} lignes à traiter.\n")
+        print(f"[PROD] {len(df)} IDs à traiter.\n")
 
     results = []
 
@@ -80,16 +108,17 @@ async def main():
         page    = await context.new_page()
 
         for _, row in df.iterrows():
-            print(f"\n→ Scraping {row['id']} | {row['url']}")
-            result = await scrape_company_ref(page, url=row["url"], row_id=row["id"])
+            row_id = str(row["id"]).strip()
+            print(f"\n→ Traitement {row_id}")
+            result = await process_transaction(page, row_id)
             results.append(result)
-            await asyncio.sleep(1)
+            await asyncio.sleep(1.0)
 
         await context.close()
         await browser.close()
 
     with open(LOG_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["id", "url", "company_ref", "status", "message"])
+        writer = csv.DictWriter(f, fieldnames=["id", "url", "num_transaction", "status", "message"])
         writer.writeheader()
         writer.writerows(results)
 

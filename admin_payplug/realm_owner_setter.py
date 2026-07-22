@@ -10,7 +10,7 @@ from datetime import datetime
 DATA_SOURCE = "input/realm_owners.csv"
 BASE_URL    = "https://admin.payplug.com/realm-companies?realm_ref={realm_id}"
 LOG_FILE    = f"results/results_realm_owners_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE = True
+TEST_MODE = False
 MAX_PAGES = 20
 
 SEL_SEARCH_INPUT    = 'input[placeholder*="Rechercher une entreprise"]'

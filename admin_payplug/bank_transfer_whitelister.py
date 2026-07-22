@@ -11,7 +11,7 @@ from datetime import datetime
 DATA_SOURCE = "input/bank_transfer_ids.csv"
 BASE_URL    = "https://admin.payplug.com/admin/bank/transfers/{id}"
 LOG_FILE    = f"results/results_whitelist_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE = True
+TEST_MODE = False
 
 SEL_EDIT_BTN   = "#edit-company-toggle-button"
 SEL_RADIO_WL   = 'input[name="frozen_or_whitelisted_status"][value="whitelisted"]'

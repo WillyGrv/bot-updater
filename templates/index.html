@@ -267,15 +267,24 @@
         <div class="script-item">
           <div class="script-content">
             <div class="script-name">${script.name}</div>
-            <div class="script-file">${script.file}</div>
-            <div class="script-desc">${script.description}</div>
-            ${script.warning ? `<div class="script-warning"><i class="bi bi-exclamation-triangle-fill me-1"></i>${script.warning}</div>` : ''}
-            ${fileRefHtml}
-            ${(script.inputs || []).length || (script.outputs || []).length ? `
+            ${script.subtitle ? `<div class="script-subtitle">${script.subtitle}</div>` : ''}
+            ${(script.inputs || []).length ? `
               <div class="d-flex flex-wrap gap-1 mt-2">
-                ${(script.inputs  || []).map(i => `<span class="badge badge-input  rounded-pill"><i class="bi bi-arrow-right-short"></i>${i}</span>`).join('')}
-                ${(script.outputs || []).map(o => `<span class="badge badge-output rounded-pill"><i class="bi bi-arrow-left-short"></i>${o}</span>`).join('')}
+                ${(script.inputs || []).map(i => `<span class="badge badge-input rounded-pill"><i class="bi bi-arrow-right-short"></i>${i}</span>`).join('')}
               </div>` : ''}
+            <button class="script-expand-toggle" onclick="this.closest('.script-item').classList.toggle('expanded')">
+              <i class="bi bi-chevron-down"></i>Détails
+            </button>
+            <div class="script-extra">
+              <div class="script-file">${script.file}</div>
+              <div class="script-desc">${script.description}</div>
+              ${script.warning ? `<div class="script-warning"><i class="bi bi-exclamation-triangle-fill me-1"></i>${script.warning}</div>` : ''}
+              ${fileRefHtml}
+              ${(script.outputs || []).length ? `
+                <div class="d-flex flex-wrap gap-1 mt-2">
+                  ${(script.outputs || []).map(o => `<span class="badge badge-output rounded-pill"><i class="bi bi-arrow-left-short"></i>${o}</span>`).join('')}
+                </div>` : ''}
+            </div>
           </div>
           <div class="script-action">
             <button class="btn-run ${bot.color}"

@@ -17,7 +17,7 @@ SEL_COMMENT_SUBMIT    = "form#add-comment input[type='submit']"
 SEL_COMMENT_LOG_LIST  = "#all-logs"
 SEL_COMMENT_FIRST_PIN = "#all-logs .company-log:first-child i.pin"
 LOG_FILE    = f"results/results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-TEST_MODE = True
+TEST_MODE = False
 
 # ── Champs disponibles ─────────────────────────────────────────────────────────
 # value_mode: "fixed"   → même valeur pour toutes les lignes (saisie au démarrage)

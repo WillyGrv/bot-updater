@@ -9,6 +9,7 @@ from datetime import datetime
 
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
 DATA_SOURCE = "input/data.csv"
+BASE_URL    = "http://admin.payplug.com/admin/companies/{id}"
 TEST_MODE = False
 
 SCRAP_TARGETS = {
@@ -134,6 +135,15 @@ async def main():
     print("Chargement du CSV...")
     df = pd.read_csv(DATA_SOURCE, dtype=str)
     df.columns = df.columns.str.strip().str.lower()
+
+    if "url" not in df.columns:
+        df["url"] = pd.NA
+    missing_url = df["url"].isna() | (df["url"].str.strip() == "")
+    if missing_url.any():
+        if "id" not in df.columns:
+            print("⚠ Colonne 'id' requise dans le CSV — arrêt.")
+            return
+        df.loc[missing_url, "url"] = df.loc[missing_url, "id"].apply(lambda v: BASE_URL.format(id=str(v).strip()))
 
     if TEST_MODE:
         df = df.head(1)

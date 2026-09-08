@@ -21,8 +21,8 @@ Suite de 3 bots d'automatisation + dashboard web local.
 ### 2. Environnement virtuel
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
 ```
@@ -39,7 +39,7 @@ cp .env.example .env
 ## Lancer le dashboard
 
 ```bash
-source .venv/bin/activate
+source venv/bin/activate
 python dashboard.py
 # → http://localhost:5001
 ```

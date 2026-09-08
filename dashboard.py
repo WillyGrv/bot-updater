@@ -230,6 +230,26 @@ BOTS = [
                 ],
             },
             {
+                "file":        "advance_config_bot.py",
+                "name":        "AdvanceConfigBot",
+                "subtitle":    "Module + feature flags + offre Platinium à zéro",
+                "description": "Pour chaque ID : active 'Display report creator', crée 2 feature flags, puis crée une offre Platinium avec tous les frais à zéro.",
+                "inputs":      ["data.csv (colonne : id)", "session.json"],
+                "outputs":     ["results/results_advance_config_XXXXXX.csv"],
+                "params": [
+                    {
+                        "id":      "dry_run",
+                        "type":    "radio",
+                        "label":   "Mode DRY_RUN (simulation, sans clic de validation finale)",
+                        "default": "no",
+                        "options": [
+                            {"value": "no",  "label": "Non — exécution réelle"},
+                            {"value": "yes", "label": "Oui — DRY_RUN"},
+                        ],
+                    },
+                ],
+            },
+            {
                 "file":        "channel_creator.py",
                 "name":        "MIDPFCreatorBot",
                 "subtitle":    "Ajouter un channel MID Payfac Low Risk aux fiches admin",
@@ -306,7 +326,7 @@ BOTS = [
             },
         ],
         "session_check":   {"url": "https://admin.payplug.com/admin/companies", "login_patterns": ["login"], "body_patterns": ['name="password"', 'name="email"']},
-        "results_globs":   ["results/results_*.csv", "results/company_refs_*.csv", "results/raison_sociale_*.csv", "results/siret_*.csv", "results/results_channel_*.csv", "results/results_features_*.csv", "results/results_realm_users_*.csv", "results/results_realm_owners_*.csv", "results/solvimon_virement_*.csv", "results/results_payment_history_*.csv"],
+        "results_globs":   ["results/results_*.csv", "results/company_refs_*.csv", "results/raison_sociale_*.csv", "results/siret_*.csv", "results/results_channel_*.csv", "results/results_features_*.csv", "results/results_realm_users_*.csv", "results/results_realm_owners_*.csv", "results/solvimon_virement_*.csv", "results/results_payment_history_*.csv", "results/results_advance_config_*.csv"],
         "editable_csvs":   [
             {"file": "input/data.csv",                 "label": "Data.csv",                 "format": "id, url",            "color": "#3b82f6"},
             {"file": "input/channel_accounts.csv",     "label": "Channel accounts.csv",     "format": "id, company_ref",    "color": "#a855f7"},
@@ -341,6 +361,16 @@ BOTS = [
                         ],
                         "default": "prod",
                     },
+                    {
+                        "id":      "dry_run",
+                        "type":    "radio",
+                        "label":   "Mode DRY_RUN (simulation, sans appel API d'écriture)",
+                        "default": "no",
+                        "options": [
+                            {"value": "no",  "label": "Non — exécution réelle"},
+                            {"value": "yes", "label": "Oui — DRY_RUN"},
+                        ],
+                    },
                 ],
             },
             {
@@ -371,9 +401,10 @@ BOTS = [
             {
                 "file":        "solvimon_bulk_subscriptions.py",
                 "name":        "3 — Créer les Subscriptions",
-                "description": "POST /copy → PATCH customer_id + ACTIVE pour chaque ligne du CSV.",
-                "inputs":      ["customers.csv (colonne : customer_id)"],
+                "description": "POST /copy (référence = id-customer_id-timestamp) → PATCH customer_id + ACTIVE pour chaque ligne du CSV.",
+                "inputs":      ["customers.csv (colonnes : id, customer_id) OU un fichier de résultats 'Créer les Customers'"],
                 "outputs":     ["results/results_solvimon_XXXXXX.csv"],
+                "interactive": True,
                 "params": [
                     {
                         "id":      "env",
@@ -391,12 +422,39 @@ BOTS = [
                         "label":       "Subscription ID source",
                         "placeholder": "ex: sub_xxxxxxxxxxxxxxxx",
                     },
+                    {
+                        "id":      "dry_run",
+                        "type":    "radio",
+                        "label":   "Mode DRY_RUN (simulation, sans copie ni activation réelle)",
+                        "default": "no",
+                        "options": [
+                            {"value": "no",  "label": "Non — exécution réelle"},
+                            {"value": "yes", "label": "Oui — DRY_RUN"},
+                        ],
+                    },
+                    {
+                        "id":      "input_source",
+                        "type":    "radio",
+                        "label":   "Source des customers",
+                        "default": "csv_file",
+                        "options": [
+                            {"value": "csv_file",                "label": "customers.csv (manuel)"},
+                            {"value": "create_customers_output", "label": "Résultats récents — Créer les Customers"},
+                        ],
+                    },
+                    {
+                        "id":      "create_customers_file",
+                        "type":    "dynamic_select",
+                        "label":   "Fichier de résultats à utiliser",
+                        "api":     "/api/create_customers_files/solvimon_api",
+                        "show_if": {"param": "input_source", "value": "create_customers_output"},
+                    },
                 ],
             },
         ],
         "results_globs":    ["results/results_solvimon_*.csv", "results/results_create_customers_*.csv"],
         "editable_csvs":    [
-            {"file": "customers.csv",       "label": "Customers.csv",  "format": "customer_id", "color": "#10b981"},
+            {"file": "customers.csv",       "label": "Customers.csv",  "format": "id, customer_id", "color": "#10b981"},
             {"file": "input/admin_ids.csv", "label": "Admin IDs.csv",  "format": "id",          "color": "#6366f1"},
         ],
         "test_mode_script": "solvimon_bulk_subscriptions.py",
@@ -472,9 +530,71 @@ BOTS = [
                     },
                 ],
             },
+            {
+                "file":        "check_additional_fees_client_bot.py",
+                "name":        "Check Additional Fees (Client)",
+                "description": "Pour chaque ID du CSV, vérifie ou met à jour les fees de la section Billing Agreement d'une fiche client.",
+                "inputs":      ["input/data.csv (colonne : id)", "session.json"],
+                "outputs":     ["results/results_additional_fees_client_XXXXXX.csv"],
+                "params": [
+                    {
+                        "id":      "action",
+                        "type":    "radio_with_sub",
+                        "label":   "Action",
+                        "default": "check",
+                        "options": [
+                            {
+                                "value": "check",
+                                "label": "Check",
+                                "desc":  "Liste les fees actifs/inactifs — lecture seule",
+                            },
+                            {
+                                "value":       "__sub__",
+                                "label":       "Update",
+                                "desc":        "Coche ou décoche tous les fees puis sauvegarde",
+                                "sub_options": [
+                                    {"value": "uncheck_all", "label": "Tout décocher"},
+                                    {"value": "check_all",   "label": "Tout cocher"},
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+            {
+                "file":        "check_additional_fees_udv_bot.py",
+                "name":        "Check Additional Fees (UDV)",
+                "description": "Pour chaque ID du CSV, vérifie ou met à jour les fees de la section Billing Agreement d'une fiche UDV.",
+                "inputs":      ["input/data.csv (colonne : id)", "session.json"],
+                "outputs":     ["results/results_additional_fees_udv_XXXXXX.csv"],
+                "params": [
+                    {
+                        "id":      "action",
+                        "type":    "radio_with_sub",
+                        "label":   "Action",
+                        "default": "check",
+                        "options": [
+                            {
+                                "value": "check",
+                                "label": "Check",
+                                "desc":  "Liste les fees actifs/inactifs — lecture seule",
+                            },
+                            {
+                                "value":       "__sub__",
+                                "label":       "Update",
+                                "desc":        "Coche ou décoche tous les fees puis sauvegarde",
+                                "sub_options": [
+                                    {"value": "uncheck_all", "label": "Tout décocher"},
+                                    {"value": "check_all",   "label": "Tout cocher"},
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
         ],
         "session_check":    {"url": None},
-        "results_globs":    ["results/results_cockpit_*.csv", "results/results_mid_updater_*.csv", "results/results_mid_siret_*.csv"],
+        "results_globs":    ["results/results_cockpit_*.csv", "results/results_mid_updater_*.csv", "results/results_mid_siret_*.csv", "results/results_additional_fees_*.csv"],
         "editable_csvs":    [{"file": "input/data.csv", "label": "Data.csv", "format": "id", "color": "#ef4444"}],
         "test_mode_script": "cockpit_identifier.py",
     },
@@ -631,8 +751,12 @@ def run_script():
     job_id   = str(uuid.uuid4())[:8]
     bot_path = BASE_DIR / bot_id
 
+    bot         = next((b for b in BOTS if b["id"] == bot_id), None)
+    script_def  = next((s for s in bot["scripts"] if s["file"] == script), None) if bot else None
+    interactive = bool(script_def and script_def.get("interactive"))
+
     stdin_input = data.get("stdin_input", "")
-    running_jobs[job_id] = {"lines": [], "done": False, "rc": None}
+    running_jobs[job_id] = {"lines": [], "done": False, "rc": None, "proc": None}
 
     def worker():
         try:
@@ -641,14 +765,19 @@ def run_script():
                 cwd=str(bot_path),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                stdin=subprocess.PIPE if stdin_input else subprocess.DEVNULL,
+                stdin=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
                 bufsize=1,
                 env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"},
             )
+            running_jobs[job_id]["proc"] = proc
             if stdin_input:
                 proc.stdin.write(stdin_input)
+                proc.stdin.flush()
+            # Pour un script "interactive", le pipe stdin reste ouvert : le script peut
+            # attendre une réponse en cours de run (voir /api/input/<job_id>).
+            if not interactive:
                 proc.stdin.close()
             for line in proc.stdout:
                 running_jobs[job_id]["lines"].append(line.rstrip())
@@ -658,9 +787,37 @@ def run_script():
             running_jobs[job_id]["lines"].append(f"[ERREUR DASHBOARD] {e}")
         finally:
             running_jobs[job_id]["done"] = True
+            proc = running_jobs[job_id].get("proc")
+            try:
+                if proc and proc.stdin and not proc.stdin.closed:
+                    proc.stdin.close()
+            except Exception:
+                pass
 
     threading.Thread(target=worker, daemon=True).start()
     return jsonify({"job_id": job_id})
+
+
+@app.route("/api/input/<job_id>", methods=["POST"])
+def send_input(job_id):
+    job = running_jobs.get(job_id)
+    if not job or not job.get("proc"):
+        return jsonify({"ok": False, "error": "job introuvable"}), 404
+    if job.get("done"):
+        return jsonify({"ok": False, "error": "job déjà terminé"}), 400
+
+    proc = job["proc"]
+    if proc.stdin is None or proc.stdin.closed:
+        return jsonify({"ok": False, "error": "stdin fermé"}), 400
+
+    value = (request.json or {}).get("value", "")
+    try:
+        proc.stdin.write(str(value) + "\n")
+        proc.stdin.flush()
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    return jsonify({"ok": True})
 
 
 @app.route("/api/output/<job_id>")
@@ -821,6 +978,21 @@ def session_check(bot_id):
 def get_company_refs_files(bot_id):
     bot_path = BASE_DIR / bot_id
     files    = sorted(glob(str(bot_path / "results" / "company_refs_*.csv")), reverse=True)
+    result   = []
+    for f in files:
+        try:
+            with open(f, encoding="utf-8") as fp:
+                count = sum(1 for _ in fp) - 1  # minus header
+        except Exception:
+            count = -1
+        result.append({"name": Path(f).name, "count": max(count, 0)})
+    return jsonify(result)
+
+
+@app.route("/api/create_customers_files/<bot_id>")
+def get_create_customers_files(bot_id):
+    bot_path = BASE_DIR / bot_id
+    files    = sorted(glob(str(bot_path / "results" / "results_create_customers_*.csv")), reverse=True)
     result   = []
     for f in files:
         try:

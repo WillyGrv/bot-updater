@@ -160,6 +160,13 @@
       </div>
       <div class="modal-body p-0">
         <div class="terminal" id="terminalOutput">Démarrage...</div>
+        <div id="confirmBar" style="display:none; align-items:center; justify-content:space-between; gap:12px; background:#1e293b; border-top:1px solid #334155; padding:12px 20px;">
+          <span style="color:#f59e0b; font-size:.82rem;" id="confirmBarText">⚠ Confirmation requise</span>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm" style="background:#334155; color:#94a3b8; border:none;" onclick="sendJobInput('n')">Non — annuler</button>
+            <button type="button" class="btn btn-sm px-3" style="background:#ef4444; color:white; border:none;" onclick="sendJobInput('o')">Oui — confirmer</button>
+          </div>
+        </div>
       </div>
       <div class="modal-footer-dark d-flex align-items-center justify-content-between">
         <div style="font-size:.75rem; color:#475569;">
@@ -188,6 +195,11 @@
   let activeCsv     = { botId: null, file: null };
   const sessionStates = {};
   const savedCredentialsCache = {};
+
+  // ── Confirmation interactive en cours de run ────────────────────────────────
+  const CONFIRM_MARKER = '###CONFIRM_REQUIRED###';
+  let currentJobId      = null;
+  let awaitingConfirm    = false;
 
   // Clock
   setInterval(() => {
@@ -698,6 +710,12 @@
   }
 
   // ── Run Script ─────────────────────────────────────────────────────────────
+  function appendLine(text) {
+    const term = document.getElementById('terminalOutput');
+    term.textContent += '\n' + text;
+    term.scrollTop = term.scrollHeight;
+  }
+
   function executeScript(botId, scriptFile, scriptName, stdinInput) {
     document.getElementById('modalScriptName').textContent = scriptFile;
     document.getElementById('modalBotName').textContent    = scriptName;
@@ -709,6 +727,9 @@
     document.getElementById('progressPct').textContent     = '';
     document.getElementById('progressBar').style.width     = '0%';
     document.getElementById('progressWrap').style.display  = 'none';
+    document.getElementById('confirmBar').style.display    = 'none';
+    currentJobId    = null;
+    awaitingConfirm = false;
     setStatus('running');
     outputModal.show();
 
@@ -719,6 +740,7 @@
     })
     .then(r => r.json())
     .then(data => {
+      currentJobId = data.job_id;
       document.getElementById('jobIdDisplay').textContent = data.job_id;
       pollOutput(data.job_id);
     })
@@ -737,12 +759,38 @@
           term.scrollTop   = term.scrollHeight;
           document.getElementById('lineCount').textContent = data.lines.length;
           updateProgress(data.lines);
+
+          if (!awaitingConfirm && !data.done) {
+            const idx = data.lines.findIndex(l => l.includes(CONFIRM_MARKER));
+            if (idx !== -1) {
+              awaitingConfirm = true;
+              const contextLine = idx > 0 ? data.lines[idx - 1].replace(/^\s*⚠\s*/, '⚠ ') : '⚠ Confirmation requise';
+              document.getElementById('confirmBarText').textContent = contextLine;
+              document.getElementById('confirmBar').style.display = 'flex';
+            }
+          }
+
           if (data.done) {
             clearInterval(pollInterval);
+            document.getElementById('confirmBar').style.display = 'none';
             setStatus(data.rc === 0 ? 'success' : 'error', data.rc);
           }
         });
     }, 800);
+  }
+
+  function sendJobInput(value) {
+    if (!currentJobId) return;
+    document.getElementById('confirmBar').style.display = 'none';
+    awaitingConfirm = false;
+    fetch('/api/input/' + currentJobId, {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ value }),
+    })
+    .then(r => r.json())
+    .then(data => { if (!data.ok) appendLine('[ERREUR CONFIRMATION] ' + (data.error || '')); })
+    .catch(err => appendLine('[ERREUR CONFIRMATION] ' + err));
   }
 
   function setStatus(state, rc) {

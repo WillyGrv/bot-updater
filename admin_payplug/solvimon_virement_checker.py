@@ -12,6 +12,8 @@ DATA_SOURCE = "input/data.csv"
 LOG_FILE    = f"results/solvimon_virement_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 TEST_MODE = False
 
+BASE_URL = "https://admin.payplug.com/admin/companies/{id}"
+
 SOLVIMON_TEXT = "Ce marchand est facturé via Solvimon"
 
 SEL_ACCOUNTING_LINK  = 'a[data-e2e="accounting"]'
@@ -117,9 +119,16 @@ async def main():
     df = pd.read_csv(DATA_SOURCE, dtype=str)
     df.columns = df.columns.str.strip().str.lower()
 
-    if "id" not in df.columns or "url" not in df.columns:
-        print("⚠ Colonnes 'id' et 'url' requises dans le CSV — arrêt.")
+    if "id" not in df.columns:
+        print("⚠ Colonne 'id' requise dans le CSV — arrêt.")
         return
+
+    # 'url' optionnelle : si absente (ou vide sur une ligne), on la construit depuis l'id.
+    if "url" not in df.columns:
+        df["url"] = pd.NA
+    missing_url = df["url"].isna() | (df["url"].astype(str).str.strip() == "")
+    if missing_url.any():
+        df.loc[missing_url, "url"] = df.loc[missing_url, "id"].apply(lambda v: BASE_URL.format(id=str(v).strip()))
 
     df = df.dropna(subset=["id", "url"])
 

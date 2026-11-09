@@ -90,6 +90,20 @@ SCRAP_TARGETS = {
         "log_prefix": "pays",
         "extract":    "select_text",
     },
+    "montant": {
+        "label":      "Montant",
+        "selector":   '[data-e2e="pricing-subscription-amount"]',
+        "column":     "montant",
+        "log_prefix": "montant",
+        "extract":    "text",
+    },
+    "naf_code": {
+        "label":      "Code NAF",
+        "selector":   'input[name="kyc[naf_code]"]',
+        "column":     "naf_code",
+        "log_prefix": "naf_code",
+        "extract":    "value",
+    },
     # Ajouter ici de nouveaux types de données à scraper
 }
 # ───────────────────────────────────────────────────────────────────────────────

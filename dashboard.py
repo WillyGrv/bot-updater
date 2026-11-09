@@ -46,6 +46,7 @@ BOTS = [
             {
                 "file":        "scrapbot.py",
                 "name":        "ScrapBot",
+                "section":     "principale",
                 "subtitle":    "Scrapping information comptes Admin",
                 "description": "Lit data.csv et extrait les données choisies (une ou plusieurs) sur chaque URL, dans un seul fichier de résultats.",
                 "inputs":      ["data.csv (colonnes : id, url)", "session.json"],
@@ -67,6 +68,8 @@ BOTS = [
                             {"value": "code_postal",      "label": "Code Postal"},
                             {"value": "ville",            "label": "Ville"},
                             {"value": "pays",             "label": "Pays"},
+                            {"value": "montant",          "label": "Montant"},
+                            {"value": "naf_code",         "label": "Code NAF"},
                         ],
                     },
                 ],
@@ -74,6 +77,7 @@ BOTS = [
             {
                 "file":        "feature_flag_updater.py",
                 "name":        "FeatureFlagBot",
+                "section":     "principale",
                 "subtitle":    "Ajouter un feature flag aux comptes Admin",
                 "description": "Crée le feature flag sur chaque compte — depuis un fichier company_refs ou l'Input - Company_ref.",
                 "inputs":      ["company_refs_XXXXXX.csv ou channel_accounts.csv", "session.json"],
@@ -107,6 +111,7 @@ BOTS = [
             {
                 "file":        "admin_field_updater.py",
                 "name":        "UpdaterBot",
+                "section":     "principale",
                 "subtitle":    "Mettre à jour des informations sur les fiches admin",
                 "description": "Lit data.csv et applique la valeur saisie sur chaque URL.",
                 "inputs":      ["data.csv (colonnes : id, url)", "session.json"],
@@ -210,6 +215,7 @@ BOTS = [
             {
                 "file":        "feature_adder.py",
                 "name":        "NewFeatureBot",
+                "section":     "secondaire",
                 "subtitle":    "Cocher des nouvelles fonctionnalités sur les fiches admin",
                 "description": "Coche les fonctionnalités sélectionnées pour chaque company_ref du CSV, puis valide.",
                 "inputs":      ["channel_accounts.csv (colonnes : id, company_ref)", "session.json"],
@@ -239,8 +245,9 @@ BOTS = [
             {
                 "file":        "advance_config_bot.py",
                 "name":        "AdvanceConfigBot",
-                "subtitle":    "Module + feature flags + offre Platinium à zéro",
-                "description": "Pour chaque ID : active 'Display report creator', crée 2 feature flags, puis crée une offre Platinium avec tous les frais à zéro.",
+                "section":     "advance",
+                "subtitle":    "Module + feature flag + offre Platinium à zéro",
+                "description": "Pour chaque ID, exécute les actions choisies : active 'Display report creator', crée le feature flag, et/ou crée une offre Platinium avec tous les frais à zéro.",
                 "inputs":      ["data.csv (colonne : id)", "session.json"],
                 "outputs":     ["results/results_advance_config_XXXXXX.csv"],
                 "params": [
@@ -254,11 +261,92 @@ BOTS = [
                             {"value": "yes", "label": "Oui — DRY_RUN"},
                         ],
                     },
+                    {
+                        "id":    "actions",
+                        "type":  "checkbox_group",
+                        "label": "Actions à exécuter (une ou plusieurs)",
+                        "options": [
+                            {"value": "module",        "label": "Module à activer (Display report creator)"},
+                            {"value": "feature_flags", "label": "Feature flag à ajouter"},
+                            {"value": "offer",         "label": "Offre à zéro (Platinium)"},
+                        ],
+                    },
+                ],
+            },
+            {
+                "file":        "custom_pricing_bot.py",
+                "name":        "CustomPricingBot",
+                "section":     "advance",
+                "subtitle":    "Offre Platinium avec des frais personnalisés champ par champ",
+                "description": "Pour chaque ID, crée une offre Platinium (même écran que AdvanceConfigBot) en appliquant la grille tarifaire saisie ci-dessous — tout champ laissé vide reste à 0. Un template CSV est exportable/importable pour préremplir la grille.",
+                "inputs":      ["data.csv (colonne : id)", "session.json"],
+                "outputs":     ["results/results_custom_pricing_XXXXXX.csv"],
+                "params": [
+                    {
+                        "id":      "dry_run",
+                        "type":    "radio",
+                        "label":   "Mode DRY_RUN (simulation, sans clic de validation finale)",
+                        "default": "no",
+                        "options": [
+                            {"value": "no",  "label": "Non — exécution réelle"},
+                            {"value": "yes", "label": "Oui — DRY_RUN"},
+                        ],
+                    },
+                    {
+                        "id":     "pricing",
+                        "type":   "pricing_grid",
+                        "label":  "Grille tarifaire de l'offre (laisse à 0 tout champ non utilisé)",
+                        "sections": [
+                            {
+                                "title": "Offre en ligne",
+                                "rows": [
+                                    {"label": "Frais cartes particuliers domestiques", "percent": "offer.fees.classic.domesticPercentConsumer",    "fixed": "offer.fees.classic.domesticFixedConsumer"},
+                                    {"label": "Frais cartes particuliers EU",          "percent": "offer.fees.classic.eurozonePercentConsumer",    "fixed": "offer.fees.classic.eurozoneFixedConsumer"},
+                                    {"label": "Frais cartes business — domestiques",   "percent": "offer.fees.classic.domesticPercentBusiness",    "fixed": "offer.fees.classic.domesticFixedBusiness"},
+                                    {"label": "Frais cartes business — EU",            "percent": "offer.fees.classic.eurozonePercentBusiness",    "fixed": "offer.fees.classic.eurozoneFixedBusiness"},
+                                    {"label": "Frais cartes monde (hors EU)",          "percent": "offer.fees.classic.offEurozonePercentConsumer", "fixed": "offer.fees.classic.offEurozoneFixedConsumer"},
+                                    {"label": "Frais cartes American Express",         "percent": "offer.fees.americanExpress.percent",            "fixed": "offer.fees.americanExpress.fixed"},
+                                    {"label": "Frais cartes Bancontact",               "percent": "offer.fees.bancontact.percent",                 "fixed": "offer.fees.bancontact.fixed"},
+                                    {"label": "Frais cartes Bizum",                    "percent": "offer.fees.bizum.percent",                      "fixed": "offer.fees.bizum.fixed"},
+                                    {"label": "Frais cartes Giropay",                  "percent": "offer.fees.giropay.percent",                    "fixed": "offer.fees.giropay.fixed"},
+                                    {"label": "Frais cartes iDeal",                    "percent": "offer.fees.ideal.percent",                      "fixed": "offer.fees.ideal.fixed"},
+                                    {"label": "Frais cartes MyBank",                   "percent": "offer.fees.mybank.percent",                     "fixed": "offer.fees.mybank.fixed"},
+                                    {"label": "Frais cartes Satispay",                 "percent": "offer.fees.satispay.percent",                   "fixed": "offer.fees.satispay.fixed"},
+                                    {"label": "Frais cartes Scalapay",                 "percent": "offer.fees.scalapay.percent",                   "fixed": "offer.fees.scalapay.fixed"},
+                                    {"label": "Frais cartes Sofort",                   "percent": "offer.fees.sofort.percent",                     "fixed": "offer.fees.sofort.fixed"},
+                                    {"label": "Frais cartes Wero",                     "percent": "offer.fees.wero.percent",                       "fixed": "offer.fees.wero.fixed"},
+                                    {"label": "Paiement 3x/4x — avec frais",           "percent": "offer.fees.oney.withFeesPercent",               "fixed": "offer.fees.oney.withFeesFixed"},
+                                    {"label": "Paiement 3x — sans frais",              "percent": "offer.fees.oney.x3WithoutFeesPercent",          "fixed": "offer.fees.oney.x3WithoutFeesFixed"},
+                                    {"label": "Paiement 4x — sans frais",              "percent": "offer.fees.oney.x4WithoutFeesPercent",          "fixed": "offer.fees.oney.x4WithoutFeesFixed"},
+                                ],
+                                "dual_plain": {
+                                    "fields": [
+                                        {"id": "offer.contract.monthlySubscriptionAmount", "label": "Forfait mensuel",   "suffix": "€",     "placeholder": "0"},
+                                        {"id": "offer.contract.subscriptionFreeTrialDays", "label": "Jours de gratuité", "suffix": "jours", "placeholder": "0"},
+                                    ],
+                                },
+                            },
+                            {
+                                "title": "Offre en Magasin",
+                                "rows": [
+                                    {"label": "Frais cartes particuliers domestiques", "percent": "offer.fees.pos.domesticPercentConsumer",    "fixed": "offer.fees.pos.domesticFixedConsumer"},
+                                    {"label": "Frais cartes particuliers EU",          "percent": "offer.fees.pos.eurozonePercentConsumer",    "fixed": "offer.fees.pos.eurozoneFixedConsumer"},
+                                    {"label": "Frais cartes business — domestiques",   "percent": "offer.fees.pos.domesticPercentBusiness",    "fixed": "offer.fees.pos.domesticFixedBusiness"},
+                                    {"label": "Frais cartes business — EU",            "percent": "offer.fees.pos.eurozonePercentBusiness",    "fixed": "offer.fees.pos.eurozoneFixedBusiness"},
+                                    {"label": "Frais cartes monde (hors EU)",          "percent": "offer.fees.pos.offEurozonePercentConsumer", "fixed": "offer.fees.pos.offEurozoneFixedConsumer"},
+                                ],
+                                "single_plain": {
+                                    "id": "offer.contract.monthlySubscriptionAmountPos", "label": "Forfait mensuel (POS)", "suffix": "€", "placeholder": "0",
+                                },
+                            },
+                        ],
+                    },
                 ],
             },
             {
                 "file":        "apple_pay_bot.py",
                 "name":        "ApplePayBot",
+                "section":     "secondaire",
                 "subtitle":    "Déclarer un domaine Apple Pay sur chaque fiche",
                 "description": "Pour chaque ID, ouvre l'onboarding Apple Pay, déclare le domaine saisi et vérifie qu'il est bien approuvé.",
                 "inputs":      ["data.csv (colonne : id)", "session.json"],
@@ -285,6 +373,7 @@ BOTS = [
             {
                 "file":        "channel_creator.py",
                 "name":        "MIDPFCreatorBot",
+                "section":     "advance",
                 "subtitle":    "Ajouter un channel MID Payfac Low Risk aux fiches admin",
                 "description": "Crée un channel MID Payfac Ecom Low Risk pour chaque company_ref.",
                 "inputs":      ["channel_accounts.csv (colonnes : id, company_ref)", "session.json"],
@@ -294,6 +383,7 @@ BOTS = [
             {
                 "file":        "channel_scrapper_bot.py",
                 "name":        "ChannelScrapperBot",
+                "section":     "secondaire",
                 "subtitle":    "Récupérer la date de création du channel DALENYS",
                 "description": "Pour chaque company_ref, ouvre la section 'DALENYS' de la liste des channels et en extrait la date de création.",
                 "inputs":      ["channel_accounts.csv (colonnes : id, company_ref)", "session.json"],
@@ -303,6 +393,7 @@ BOTS = [
             {
                 "file":        "realm_user_adder.py",
                 "name":        "RealmUserAddBot",
+                "section":     "secondaire",
                 "subtitle":    "Invite chaque email du CSV comme utilisateur sur le royaume",
                 "description": "Invite chaque email du CSV comme utilisateur sur le royaume (change-owner → inviter un nouvel utilisateur).",
                 "inputs":      ["input/realm_users.csv (colonne : email)", "session.json"],
@@ -319,6 +410,7 @@ BOTS = [
             {
                 "file":        "realm_owner_setter.py",
                 "name":        "RealmOwnerUpdateBot",
+                "section":     "secondaire",
                 "subtitle":    "Pour chaque ligne du CSV, retrouve la company_ref dans le royaume, ouvre 'Changer propriétaire' et sélectionne l'email comme nouveau propriétaire",
                 "description": "Pour chaque ligne du CSV, retrouve la company_ref dans le royaume, ouvre 'Changer propriétaire' et sélectionne l'email comme nouveau propriétaire.",
                 "inputs":      ["input/realm_owners.csv (colonnes : company_ref, email)", "session.json"],
@@ -335,6 +427,7 @@ BOTS = [
             {
                 "file":        "bank_transfer_whitelister.py",
                 "name":        "WhiteListTransferBot",
+                "section":     "secondaire",
                 "subtitle":    "Whitelister les virements d'une fiche marchand",
                 "description": "Pour chaque ID du CSV, ouvre la fiche transfer, sélectionne 'whitelisted' et applique la date saisie.",
                 "inputs":      ["input/bank_transfer_ids.csv (colonne : id)", "session.json"],
@@ -350,16 +443,44 @@ BOTS = [
             },
             {
                 "file":        "solvimon_virement_checker.py",
-                "name":        "CheckAdvanceBusinessDayBot",
-                "subtitle":    "Vérifier si le compte marchand est bien sous facturation Solvimon + Business Day",
-                "description": "Pour chaque ligne du CSV, vérifie la présence du bloc Solvimon (Documents comptables) et lit le statut des virements (Configuration).",
+                "name":        "Solvimon Virement",
+                "section":     "advance",
+                "subtitle":    "Vérifier la facturation Solvimon + le statut Business Day, et activer ce dernier si besoin",
+                "description": "Pour chaque ligne du CSV, deux actions indépendantes au choix : Check (présence du bloc Solvimon + statut des virements) et/ou Activation Business day (si le statut est 'Non activé', sélectionne le délai de règlement choisi puis active). Activation définitive — jamais déclenchée par défaut.",
                 "inputs":      ["input/data.csv (colonne : id — url optionnelle, construite depuis l'id si absente)", "session.json"],
                 "outputs":     ["results/solvimon_virement_XXXXXX.csv"],
-                "params":      [],
+                "params": [
+                    {
+                        "id":    "actions",
+                        "type":  "checkbox_group",
+                        "label": "Actions à exécuter (une ou plusieurs — défaut si rien coché : Check seul)",
+                        "options": [
+                            {"value": "check",    "label": "Check (Solvimon + statut virement)"},
+                            {"value": "activate", "label": "Activation Business day (définitif)"},
+                        ],
+                    },
+                    {
+                        "id":      "settlement_delay",
+                        "type":    "radio",
+                        "label":   "Délai de règlement (appliqué uniquement si Activation sélectionnée)",
+                        "default": "keep",
+                        "options": [
+                            {"value": "keep", "label": "Ne pas changer"},
+                            {"value": "j1",   "label": "J+1"},
+                            {"value": "j2",   "label": "J+2"},
+                            {"value": "j3",   "label": "J+3"},
+                            {"value": "j4",   "label": "J+4"},
+                            {"value": "j5",   "label": "J+5"},
+                            {"value": "j6",   "label": "J+6"},
+                            {"value": "j7",   "label": "J+7"},
+                        ],
+                    },
+                ],
             },
             {
                 "file":        "payment_history_checker.py",
                 "name":        "CheckPaymentIDBot",
+                "section":     "secondaire",
                 "subtitle":    "Scrapper l'information de l'ID de paiement (\"pay_...\") sur un ensemble d'ID de paiement cockpit",
                 "description": "Pour chaque ID du CSV, recherche la transaction dans l'historique et lit le N° de transaction depuis la popup Détail.",
                 "inputs":      ["input/bank_transfer_ids.csv (colonne : id)", "session.json"],
@@ -368,7 +489,7 @@ BOTS = [
             },
         ],
         "session_check":   {"url": "https://admin.payplug.com/admin/companies", "login_patterns": ["login"], "body_patterns": ['name="password"', 'name="email"']},
-        "results_globs":   ["results/results_*.csv", "results/company_refs_*.csv", "results/raison_sociale_*.csv", "results/siret_*.csv", "results/nom_commercial_*.csv", "results/user_owner_email_*.csv", "results/contact_email_*.csv", "results/vat_number_*.csv", "results/adresse_*.csv", "results/code_postal_*.csv", "results/ville_*.csv", "results/pays_*.csv", "results/results_scrapbot_multi_*.csv", "results/results_channel_*.csv", "results/results_features_*.csv", "results/results_realm_users_*.csv", "results/results_realm_owners_*.csv", "results/solvimon_virement_*.csv", "results/results_payment_history_*.csv", "results/results_advance_config_*.csv"],
+        "results_globs":   ["results/results_*.csv", "results/company_refs_*.csv", "results/raison_sociale_*.csv", "results/siret_*.csv", "results/nom_commercial_*.csv", "results/user_owner_email_*.csv", "results/contact_email_*.csv", "results/vat_number_*.csv", "results/adresse_*.csv", "results/code_postal_*.csv", "results/ville_*.csv", "results/pays_*.csv", "results/montant_*.csv", "results/naf_code_*.csv", "results/results_scrapbot_multi_*.csv", "results/results_channel_*.csv", "results/results_features_*.csv", "results/results_realm_users_*.csv", "results/results_realm_owners_*.csv", "results/solvimon_virement_*.csv", "results/results_payment_history_*.csv", "results/results_advance_config_*.csv", "results/results_custom_pricing_*.csv"],
         "editable_csvs":   [
             {"file": "input/data.csv",                 "label": "Data.csv",                 "format": "id, url",            "color": "#3b82f6"},
             {"file": "input/channel_accounts.csv",     "label": "Channel accounts.csv",     "format": "id, company_ref",    "color": "#a855f7"},
@@ -573,42 +694,11 @@ BOTS = [
                 ],
             },
             {
-                "file":        "check_additional_fees_client_bot.py",
-                "name":        "Check Additional Fees (Client)",
-                "description": "Pour chaque ID du CSV, vérifie ou met à jour les fees de la section Billing Agreement d'une fiche client.",
-                "inputs":      ["input/data.csv (colonne : id)", "session.json"],
-                "outputs":     ["results/results_additional_fees_client_XXXXXX.csv"],
-                "params": [
-                    {
-                        "id":      "action",
-                        "type":    "radio_with_sub",
-                        "label":   "Action",
-                        "default": "check",
-                        "options": [
-                            {
-                                "value": "check",
-                                "label": "Check",
-                                "desc":  "Liste les fees actifs/inactifs — lecture seule",
-                            },
-                            {
-                                "value":       "__sub__",
-                                "label":       "Update",
-                                "desc":        "Coche ou décoche tous les fees puis sauvegarde",
-                                "sub_options": [
-                                    {"value": "uncheck_all", "label": "Tout décocher"},
-                                    {"value": "check_all",   "label": "Tout cocher"},
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            },
-            {
-                "file":        "check_additional_fees_udv_bot.py",
-                "name":        "Check Additional Fees (UDV)",
-                "description": "Pour chaque ID du CSV, vérifie ou met à jour les fees de la section Billing Agreement d'une fiche UDV.",
-                "inputs":      ["input/data.csv (colonne : id)", "session.json"],
-                "outputs":     ["results/results_additional_fees_udv_XXXXXX.csv"],
+                "file":        "check_additional_fees_bot.py",
+                "name":        "CheckAdditionalFeesBot",
+                "description": "Pour chaque ligne du CSV, vérifie ou met à jour les fees de la section Billing Agreement — au niveau client si ID_Client est renseigné, au niveau UDV si ID_UDV est renseigné (indépendamment l'un de l'autre, en un seul lancement ; un ID_Client répété n'est traité qu'une fois). Le fichier de sortie précise le niveau (client/udv) et le Trade name sur chaque ligne.",
+                "inputs":      ["input/check_fees.csv (colonnes : ID_Client, ID_UDV)", "session.json"],
+                "outputs":     ["results/results_additional_fees_XXXXXX.csv"],
                 "params": [
                     {
                         "id":      "action",
@@ -637,8 +727,8 @@ BOTS = [
             {
                 "file":        "financial_advance_bot.py",
                 "name":        "FinancialAdvanceBot",
-                "description": "Pour chaque UDV, crée un Financial Account (udv, tradeName, name depuis le CSV — le reste des champs config/financier/banque est fixe).",
-                "inputs":      ["input/financial.csv (colonnes : ID udv, Nom UDV)", "session.json"],
+                "description": "Pour chaque UDV, crée un Financial Account (udv, tradeName, name depuis le CSV — le reste des champs config/financier/banque est fixe). ID_UDV au format CXXXXXX (ex: C001914) → converti en FXXXXXX (7 caractères exactement).",
+                "inputs":      ["input/financial.csv (colonnes : ID_UDV [CXXXXXX], Nom compte)", "session.json"],
                 "outputs":     ["results/results_financial_advance_XXXXXX.csv"],
                 "params": [
                     {
@@ -662,11 +752,16 @@ BOTS = [
                 "params":      [],
             },
         ],
-        "session_check":    {"url": None},
+        "session_check":    {
+            "url":            "https://internal-payment.gcp.dlns.io/intranet/admin/udvs/edit?id=1",
+            "login_patterns": [],
+            "body_patterns":  ["could not verify your identity"],
+        },
         "results_globs":    ["results/results_cockpit_*.csv", "results/results_mid_updater_*.csv", "results/results_mid_siret_*.csv", "results/results_additional_fees_*.csv", "results/results_financial_advance_*.csv", "results/results_check_financial_*.csv"],
         "editable_csvs":    [
             {"file": "input/data.csv",       "label": "Data.csv",       "format": "id",                  "color": "#ef4444"},
-            {"file": "input/financial.csv",  "label": "Financial.csv",  "format": "ID udv, Nom UDV",      "color": "#8b5cf6"},
+            {"file": "input/financial.csv",  "label": "Financial.csv",  "format": "ID_UDV (CXXXXXX), Nom compte", "color": "#8b5cf6"},
+            {"file": "input/check_fees.csv", "label": "Check Fees.csv", "format": "ID_Client, ID_UDV",    "color": "#06b6d4"},
         ],
         "test_mode_script": "cockpit_identifier.py",
     },

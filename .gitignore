@@ -20,6 +20,9 @@ admin_field_updater/results_*.csv
 # ── Screenshots de debug Playwright ─────────────────────────────────────────
 **/screenshots/
 
+# ── Logs runtime du service dashboard ───────────────────────────────────────
+logs/
+
 # ── Python ───────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc

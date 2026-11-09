@@ -110,7 +110,7 @@
 
 <!-- ── Modal Paramètres ───────────────────────────────────────────────────── -->
 <div class="modal fade" id="paramsModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header-dark d-flex align-items-center">
         <div class="flex-grow-1">
@@ -192,6 +192,7 @@
   let activeBot     = null;
   let activeBotId   = null;
   let pendingRun    = null;
+  let onJobDone     = null;
   let activeCsv     = { botId: null, file: null };
   const sessionStates = {};
   const savedCredentialsCache = {};
@@ -207,6 +208,14 @@
   }, 1000);
 
   // ── Navigation ─────────────────────────────────────────────────────────────
+  function toggleScriptsSection(btn) {
+    const section = btn.dataset.targetSection;
+    const open = btn.classList.toggle('open');
+    document.querySelectorAll(`#detail-scripts .script-item[data-section="${section}"]`).forEach(el => {
+      el.style.display = open ? '' : 'none';
+    });
+  }
+
   function openBot(botId) {
     const bot = BOTS.find(b => b.id === botId);
     if (!bot) return;
@@ -260,9 +269,9 @@
     checkSession(bot.id);
 
     // Scripts (login.py exclu — déplacé dans le header)
-    let scriptsHtml = '';
     const allCsvs = bot.editable_csvs || [];
-    bot.scripts.filter(s => s.file !== 'login.py').forEach(script => {
+
+    function buildScriptItemHtml(script) {
       const paramsAttr = script.params ? `data-params="${JSON.stringify(script.params).replace(/"/g, '&quot;')}"` : '';
 
       // Détecte les CSV utilisés par ce script via le nom de fichier dans les inputs
@@ -275,8 +284,9 @@
           ${fileRefs.map(csv => `<span class="file-ref-pill" style="border-color:${csv.color};background:${csv.color}18;color:${csv.color};"><i class="bi bi-file-earmark-spreadsheet" style="font-size:.6rem;"></i>&nbsp;${csv.label}</span>`).join('')}
         </div>` : '';
 
-      scriptsHtml += `
-        <div class="script-item">
+      const section = script.section || 'principale';
+      return `
+        <div class="script-item" data-section="${section}">
           <div class="script-content">
             <div class="script-name">${script.name}</div>
             ${script.subtitle ? `<div class="script-subtitle">${script.subtitle}</div>` : ''}
@@ -309,8 +319,39 @@
             </button>
           </div>
         </div>`;
+    }
+
+    // Groupe par section : "principale" reste visible directement, "advance" et
+    // "secondaire" sont repliées par défaut derrière un bouton à cliquer.
+    const scriptsBySection = { principale: [], advance: [], secondaire: [] };
+    bot.scripts.filter(s => s.file !== 'login.py').forEach(script => {
+      const section = script.section || 'principale';
+      (scriptsBySection[section] || scriptsBySection.principale).push(script);
+    });
+
+    const SECTION_META = {
+      advance:    { label: 'Advance',    icon: 'bi-lightning-charge-fill' },
+      secondaire: { label: 'Secondaire', icon: 'bi-three-dots' },
+    };
+
+    let scriptsHtml = scriptsBySection.principale.map(buildScriptItemHtml).join('');
+    ['advance', 'secondaire'].forEach(key => {
+      const items = scriptsBySection[key];
+      if (!items.length) return;
+      const meta = SECTION_META[key];
+      scriptsHtml += `
+        <button class="scripts-section-toggle" data-target-section="${key}" onclick="toggleScriptsSection(this)">
+          <i class="bi bi-chevron-right"></i>
+          <i class="bi ${meta.icon}"></i>
+          ${meta.label}
+          <span class="scripts-section-count">${items.length}</span>
+        </button>
+        ${items.map(buildScriptItemHtml).join('')}`;
     });
     document.getElementById('detail-scripts').innerHTML = scriptsHtml;
+    // "advance" et "secondaire" repliées par défaut à chaque ouverture du bot.
+    document.querySelectorAll('#detail-scripts .script-item[data-section="advance"], #detail-scripts .script-item[data-section="secondaire"]')
+      .forEach(el => { el.style.display = 'none'; });
 
     // CSV panel
     const csvPanel = document.getElementById('detail-csv-panel');
@@ -407,13 +448,45 @@
     const params     = btn.dataset.params ? JSON.parse(btn.dataset.params) : null;
 
     if (scriptFile !== 'login.py' && sessionStates[botId] === false) {
-      alert('Session expirée — cliquez sur "Session" pour en sauvegarder une nouvelle avant de lancer ce script.');
+      requireSessionThenRun(botId, scriptFile, scriptName, params);
       return;
     }
+    runScript(botId, scriptFile, scriptName, params);
+  }
+
+  function runScript(botId, scriptFile, scriptName, params) {
     if (params && params.length > 0) {
       showParamsModal(botId, scriptFile, scriptName, params);
     } else {
       executeScript(botId, scriptFile, scriptName, "");
+    }
+  }
+
+  // Aucune session active : propose d'abord de choisir/créer une session (même
+  // écran que le bouton "Session" — identifiants enregistrés ou connexion manuelle),
+  // puis enchaîne automatiquement sur le script initialement demandé si ça a marché.
+  function requireSessionThenRun(botId, scriptFile, scriptName, params) {
+    const bot         = BOTS.find(b => b.id === botId);
+    const loginScript = bot && bot.scripts.find(s => s.file === 'login.py');
+    if (!loginScript) {
+      alert('Session expirée — aucune action de connexion disponible pour ce bot.');
+      return;
+    }
+
+    const afterRun = (rc) => {
+      checkSession(botId).then(() => {
+        if (rc === 0 && sessionStates[botId] !== false) {
+          runScript(botId, scriptFile, scriptName, params);
+        }
+      });
+    };
+
+    alert(`Aucune session active — choisis quelle session utiliser pour lancer « ${scriptName} ».`);
+    const loginParams = loginScript.params || [];
+    if (loginParams.length > 0) {
+      showParamsModal(botId, 'login.py', loginScript.name, loginParams, afterRun);
+    } else {
+      executeScript(botId, 'login.py', loginScript.name, "", afterRun);
     }
   }
 
@@ -450,8 +523,8 @@
     }
   }
 
-  function showParamsModal(botId, scriptFile, scriptName, params) {
-    pendingRun = { botId, scriptFile, scriptName, params };
+  function showParamsModal(botId, scriptFile, scriptName, params, afterRun) {
+    pendingRun = { botId, scriptFile, scriptName, params, afterRun: afterRun || null };
     window.currentParams = params;
     document.getElementById('paramsScriptName').textContent = scriptName;
     document.getElementById('paramsScriptFile').textContent = scriptFile;
@@ -468,7 +541,67 @@
           })()
         : false;
       html += `<div id="param_group_${p.id}" class="mb-4"${depHidden ? ' style="display:none;"' : ''}><div class="fw-semibold mb-2" style="font-size:.88rem;">${p.label}</div>`;
-      if (p.type === 'field_selector') {
+      if (p.type === 'pricing_grid') {
+        html += `
+          <div class="d-flex justify-content-end gap-2 mb-3">
+            <button type="button" class="btn btn-sm" style="background:#334155; color:#94a3b8; border:none;" onclick="exportPricingTemplate('${p.id}')">
+              <i class="bi bi-download me-1"></i>Exporter un template CSV
+            </button>
+            <label class="btn btn-sm mb-0" style="background:#334155; color:#94a3b8; border:none; cursor:pointer;">
+              <i class="bi bi-upload me-1"></i>Importer un CSV
+              <input type="file" accept=".csv" style="display:none;" onchange="importPricingCSV('${p.id}', this.files[0])">
+            </label>
+          </div>`;
+        (p.sections || []).forEach(section => {
+          html += `<div class="fw-semibold mt-3 mb-2" style="font-size:.9rem; color:#e2e8f0; border-bottom:1px solid #334155; padding-bottom:6px;">${section.title}</div>`;
+          (section.rows || []).forEach(row => {
+            html += `
+              <div class="d-flex align-items-center justify-content-between mb-2 pb-2" style="border-bottom:1px dashed #1e293b; gap:12px;">
+                <div style="font-size:.85rem; color:#94a3b8; flex:1; min-width:0;">${row.label}</div>
+                <div class="d-flex align-items-center gap-2 flex-shrink-0">
+                  <div class="input-group input-group-sm" style="width:100px;">
+                    <input type="text" class="form-control form-control-sm pricing-field" data-field="${row.percent}"
+                           placeholder="0" autocomplete="off" style="background:#0f172a; color:#e2e8f0; border-color:#334155;">
+                    <span class="input-group-text" style="background:#1e293b; color:#64748b; border-color:#334155;">%</span>
+                  </div>
+                  <span style="color:#475569;">+</span>
+                  <div class="input-group input-group-sm" style="width:100px;">
+                    <input type="text" class="form-control form-control-sm pricing-field" data-field="${row.fixed}"
+                           placeholder="0" autocomplete="off" style="background:#0f172a; color:#e2e8f0; border-color:#334155;">
+                    <span class="input-group-text" style="background:#1e293b; color:#64748b; border-color:#334155;">cts</span>
+                  </div>
+                </div>
+              </div>`;
+          });
+          if (section.dual_plain) {
+            html += `<div class="d-flex gap-3 mt-2 mb-2">`;
+            section.dual_plain.fields.forEach(f => {
+              html += `
+                <div style="flex:1;">
+                  <div style="font-size:.85rem; color:#94a3b8; margin-bottom:4px;">${f.label}</div>
+                  <div class="input-group input-group-sm">
+                    <input type="text" class="form-control form-control-sm pricing-field" data-field="${f.id}"
+                           placeholder="${f.placeholder || '0'}" autocomplete="off" style="background:#0f172a; color:#e2e8f0; border-color:#334155;">
+                    <span class="input-group-text" style="background:#1e293b; color:#64748b; border-color:#334155;">${f.suffix}</span>
+                  </div>
+                </div>`;
+            });
+            html += `</div>`;
+          }
+          if (section.single_plain) {
+            const f = section.single_plain;
+            html += `
+              <div class="mt-2 mb-2" style="max-width:220px;">
+                <div style="font-size:.85rem; color:#94a3b8; margin-bottom:4px;">${f.label}</div>
+                <div class="input-group input-group-sm">
+                  <input type="text" class="form-control form-control-sm pricing-field" data-field="${f.id}"
+                         placeholder="${f.placeholder || '0'}" autocomplete="off" style="background:#0f172a; color:#e2e8f0; border-color:#334155;">
+                  <span class="input-group-text" style="background:#1e293b; color:#64748b; border-color:#334155;">${f.suffix}</span>
+                </div>
+              </div>`;
+          }
+        });
+      } else if (p.type === 'field_selector') {
         (p.fields || []).forEach(f => {
           let fieldInput;
           if (f.value_mode === 'dynamic') {
@@ -641,7 +774,14 @@
     const { botId, scriptFile, scriptName, params } = pendingRun;
     const lines = [];
     for (const p of params) {
-      if (p.type === 'field_selector') {
+      if (p.type === 'pricing_grid') {
+        const values = {};
+        document.querySelectorAll(`#param_group_${p.id} .pricing-field`).forEach(input => {
+          const v = input.value.trim();
+          if (v !== '') values[input.dataset.field] = v;
+        });
+        lines.push(JSON.stringify(values));
+      } else if (p.type === 'field_selector') {
         const selection = {};
         (p.fields || []).forEach(f => {
           const cb = document.querySelector(`input[name="field_cb_${f.id}"]`);
@@ -706,7 +846,97 @@
       }
     }
     paramsModal.hide();
-    executeScript(botId, scriptFile, scriptName, lines.join('\n') + '\n');
+    executeScript(botId, scriptFile, scriptName, lines.join('\n') + '\n', pendingRun.afterRun);
+  }
+
+  // ── Grille tarifaire : export / import CSV ────────────────────────────────
+  function pricingFieldDefs(paramId) {
+    const p = (window.currentParams || []).find(pp => pp.id === paramId);
+    if (!p) return [];
+    const defs = [];
+    (p.sections || []).forEach(section => {
+      (section.rows || []).forEach(row => {
+        defs.push({ field: row.percent, label: `${section.title} — ${row.label} (%)` });
+        defs.push({ field: row.fixed,   label: `${section.title} — ${row.label} (fixe)` });
+      });
+      if (section.dual_plain) {
+        section.dual_plain.fields.forEach(f => defs.push({ field: f.id, label: `${section.title} — ${f.label}` }));
+      }
+      if (section.single_plain) {
+        const f = section.single_plain;
+        defs.push({ field: f.id, label: `${section.title} — ${f.label}` });
+      }
+    });
+    return defs;
+  }
+
+  function csvEscape(s) {
+    s = String(s);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  function exportPricingTemplate(paramId) {
+    const defs = pricingFieldDefs(paramId);
+    if (!defs.length) return;
+    const rows = [['field', 'label', 'value'], ...defs.map(d => [d.field, d.label, ''])];
+    const csv  = rows.map(r => r.map(csvEscape).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = 'custom_pricing_template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function parseCsvLine(line) {
+    const out = [];
+    let cur = '', inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (line[i + 1] === '"') { cur += '"'; i++; } else { inQuotes = false; }
+        } else cur += c;
+      } else if (c === '"') {
+        inQuotes = true;
+      } else if (c === ',') {
+        out.push(cur); cur = '';
+      } else {
+        cur += c;
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+
+  function importPricingCSV(paramId, file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text  = String(e.target.result || '');
+      const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+      if (lines.length < 2) { alert('Fichier CSV vide ou invalide.'); return; }
+
+      const header   = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+      const fieldIdx = header.indexOf('field');
+      const valueIdx = header.indexOf('value');
+      if (fieldIdx === -1 || valueIdx === -1) { alert("Colonnes 'field' et 'value' introuvables dans le CSV."); return; }
+
+      let applied = 0;
+      for (let i = 1; i < lines.length; i++) {
+        const cols  = parseCsvLine(lines[i]);
+        const field = (cols[fieldIdx] || '').trim();
+        const value = (cols[valueIdx] || '').trim();
+        if (!field || value === '') continue;
+        const input = document.querySelector(`#param_group_${paramId} .pricing-field[data-field="${field}"]`);
+        if (input) { input.value = value; applied++; }
+      }
+      alert(`${applied} valeur(s) importée(s) depuis le CSV.`);
+    };
+    reader.readAsText(file, 'utf-8');
   }
 
   // ── Run Script ─────────────────────────────────────────────────────────────
@@ -716,7 +946,8 @@
     term.scrollTop = term.scrollHeight;
   }
 
-  function executeScript(botId, scriptFile, scriptName, stdinInput) {
+  function executeScript(botId, scriptFile, scriptName, stdinInput, onDone) {
+    onJobDone = onDone || null;
     document.getElementById('modalScriptName').textContent = scriptFile;
     document.getElementById('modalBotName').textContent    = scriptName;
     document.getElementById('terminalOutput').textContent  = '$ python ' + scriptFile + '\n\n';
@@ -774,6 +1005,11 @@
             clearInterval(pollInterval);
             document.getElementById('confirmBar').style.display = 'none';
             setStatus(data.rc === 0 ? 'success' : 'error', data.rc);
+            if (onJobDone) {
+              const cb = onJobDone;
+              onJobDone = null;
+              cb(data.rc);
+            }
           }
         });
     }, 800);

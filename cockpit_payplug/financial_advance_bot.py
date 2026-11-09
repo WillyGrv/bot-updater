@@ -1,11 +1,17 @@
 """
 FinancialAdvanceBot
 ────────────────────
-Pour chaque UDV de input/financial.csv, sur https://internal-payment.gcp.dlns.io/cockpit/#/financialAccount :
+Pour chaque UDV de input/financial.csv (colonnes : ID_UDV au format CXXXXXX, Nom compte),
+sur https://internal-payment.gcp.dlns.io/cockpit/#/financialAccount :
   1. Clique sur "ADD" pour ouvrir le formulaire de création.
-  2. Renseigne udv (F{ID_UDV}), tradeName et name ("Payplug retail - {Nom UDV}").
+  2. Renseigne udv (ID_UDV avec le préfixe "C" remplacé par "F", ex: C001914 → F001914),
+     tradeName et name ("Payplug retail - {Nom compte}").
   3. Renseigne les champs de configuration fixes (adresse, fiscal, financier, banque).
   4. Soumet le formulaire ("Save changes").
+
+Le code UDV final est strictement vérifié à 7 caractères (F + 6 chiffres) avant tout
+remplissage de formulaire — une ligne dont l'ID_UDV ne respecte pas ce format est
+rejetée (statut KO) sans ouvrir le navigateur sur cette ligne.
 
 Lancement (terminal) :
     python financial_advance_bot.py
@@ -33,8 +39,8 @@ FINANCIAL_ACCOUNT_URL = "https://internal-payment.gcp.dlns.io/cockpit/#/financia
 
 TRADE_NAME_PREFIX = "Payplug retail - "
 
-# Champs propres au marchand : udv = F{id}, tradeName/name = "Payplug retail - {nom}"
-# (construits dynamiquement, voir build_row_fields)
+# Champs propres au marchand : udv = ID_UDV avec "C" remplacé par "F" (voir build_udv_code),
+# tradeName/name = "Payplug retail - {nom}" (construits dynamiquement, voir build_row_fields)
 
 # Champs texte fixes — identiques pour chaque UDV.
 # idDefaultLanguage/EN, idBillingCurrency/EUR, minimumBalance/0 et businessDayCutOff/00:00:00
@@ -145,10 +151,23 @@ def load_session(path: str) -> dict:
     return session
 
 
-def build_row_fields(udv_id: str, nom_udv: str) -> dict:
+def build_udv_code(id_udv: str) -> tuple[str, str]:
+    """Convertit l'ID_UDV du CSV (ex: C001914) en code UDV Financial attendu par le
+    formulaire : même logique qu'avant (préfixe de lettre + chiffres), on remplace
+    juste le 'C' par un 'F'. Longueur finale vérifiée strictement à 7 caractères."""
+    raw = id_udv.strip().upper()
+    if not raw:
+        return "", "ID_UDV vide"
+    udv_code = "F" + raw[1:] if raw[0] == "C" else "F" + raw
+    if len(udv_code) != 7:
+        return "", f"longueur UDV invalide ({len(udv_code)} caractères, 7 attendus) : '{udv_code}'"
+    return udv_code, "OK"
+
+
+def build_row_fields(udv_code: str, nom_udv: str) -> dict:
     label = f"{TRADE_NAME_PREFIX}{nom_udv}"
     return {
-        "udv":       f"F{udv_id}",
+        "udv":       udv_code,
         "tradeName": label,
         "name":      label,
     }
@@ -156,7 +175,7 @@ def build_row_fields(udv_id: str, nom_udv: str) -> dict:
 
 async def _find_frame(page, selector: str):
     """Cherche le frame contenant le sélecteur (iframe possible — même pattern que
-    cockpit_mid_updater.py / check_additional_fees_udv_bot.py sur cette même appli)."""
+    cockpit_mid_updater.py / check_additional_fees_bot.py sur cette même appli)."""
     for f in page.frames:
         try:
             if await f.locator(selector).count() > 0:
@@ -257,13 +276,19 @@ async def set_switch(page, field_name: str, desired: bool) -> tuple[bool, str]:
 async def process_udv(page, udv_id: str, nom_udv: str, dry_run: bool) -> dict:
     result = {"id": udv_id, "nom_udv": nom_udv, "status": "", "message": ""}
 
+    udv_code, err = build_udv_code(udv_id)
+    if not udv_code:
+        result.update(status="KO", message=err)
+        print(f"  ✗ [{udv_id}] {err}")
+        return result
+
     try:
         await page.goto(BASE_COCKPIT_URL, wait_until="domcontentloaded", timeout=15000)
         await page.goto(FINANCIAL_ACCOUNT_URL, wait_until="domcontentloaded", timeout=15000)
         await asyncio.sleep(2)
 
         # Le listing (et potentiellement le formulaire) peut vivre dans un iframe —
-        # même appli que cockpit_mid_updater.py / check_additional_fees_udv_bot.py.
+        # même appli que cockpit_mid_updater.py / check_additional_fees_bot.py.
         list_frame = await _find_frame(page, SEL_ADD_BUTTON)
         if list_frame is None:
             await _screenshot_failure(page, udv_id, "add_button")
@@ -283,7 +308,7 @@ async def process_udv(page, udv_id: str, nom_udv: str, dry_run: bool) -> dict:
 
         failures = []
 
-        for field, value in build_row_fields(udv_id, nom_udv).items():
+        for field, value in build_row_fields(udv_code, nom_udv).items():
             ok, msg = await fill_text_field(form_frame, field, value)
             if not ok:
                 failures.append(f"{field} ({msg})")
@@ -399,11 +424,11 @@ async def main():
     df = pd.read_csv(DATA_SOURCE, dtype=str)
     df.columns = df.columns.str.strip().str.lower()
 
-    if "id udv" not in df.columns or "nom udv" not in df.columns:
-        print("⚠ Colonnes 'ID udv' et 'Nom UDV' introuvables dans le CSV — arrêt.")
+    if "id_udv" not in df.columns or "nom compte" not in df.columns:
+        print("⚠ Colonnes 'ID_UDV' et 'Nom compte' introuvables dans le CSV — arrêt.")
         return
 
-    df = df.dropna(subset=["id udv", "nom udv"])
+    df = df.dropna(subset=["id_udv", "nom compte"])
 
     if TEST_MODE:
         df = df.head(1)
@@ -419,8 +444,8 @@ async def main():
         page    = await context.new_page()
 
         for _, row in df.iterrows():
-            udv_id  = str(row["id udv"]).strip()
-            nom_udv = str(row["nom udv"]).strip()
+            udv_id  = str(row["id_udv"]).strip()
+            nom_udv = str(row["nom compte"]).strip()
             print(f"\n→ Traitement UDV {udv_id} ({nom_udv})")
             result = await process_udv(page, udv_id, nom_udv, dry_run)
             results.append(result)

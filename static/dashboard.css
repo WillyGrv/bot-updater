@@ -343,6 +343,41 @@ body {
 }
 .script-item.expanded .script-extra { display: block; }
 
+/* ── Sections repliables (Advance / Secondaire) ──────────────────────────── */
+.scripts-section-toggle {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 2px 0;
+  color: #cbd5e1;
+  font-size: .8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.scripts-section-toggle:hover { border-color: #475569; background: #152033; }
+.scripts-section-toggle > i:first-child {
+  font-size: .64rem;
+  color: #64748b;
+  transition: transform .15s;
+}
+.scripts-section-toggle.open > i:first-child { transform: rotate(90deg); }
+.scripts-section-count {
+  margin-left: auto;
+  background: #1e293b;
+  color: #94a3b8;
+  font-size: .68rem;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+}
+
 /* ── Warning pill ──────────────────────────────────────────────────────────── */
 .script-warning {
   display: inline-flex;

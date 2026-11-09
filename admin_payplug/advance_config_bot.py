@@ -1,10 +1,14 @@
 """
 AdvanceConfigBot
 ────────────────
-Pour chaque ID de input/data.csv, sur https://admin.payplug.com/admin/companies/{id} :
-  1. Active le module « Display report creator » (page Fonctionnalités).
-  2. Crée les feature flags listés dans FEATURE_FLAGS (page Feature flags).
-  3. Crée une offre « Platinium » avec tous les frais/forfaits à zéro (page Offres).
+Pour chaque ID de input/data.csv, sur https://admin.payplug.com/admin/companies/{id},
+exécute les actions sélectionnées parmi :
+  1. Module : active « Display report creator » (page Fonctionnalités).
+  2. Feature flags : crée les flags listés dans FEATURE_FLAGS (page Feature flags).
+  3. Offre : crée une offre « Platinium » avec tous les frais/forfaits à zéro (page Offres).
+
+Les actions à exécuter sont choisies sur un écran dédié avant le lancement
+(plusieurs choix possibles) — toute action non sélectionnée est marquée "SKIP".
 
 Lancement (terminal) :
     python advance_config_bot.py
@@ -49,7 +53,6 @@ MODULE_TO_ACTIVATE = {"value": "displayReportCreator", "label": "Display report 
 
 FEATURE_FLAGS = [
     "is_enabled_for_operation_consumer_orphan_refunds",
-    "newApiKeysPageActivated",
 ]
 
 OFFER_LABEL = "Platinium"
@@ -103,6 +106,37 @@ def get_dry_run() -> bool:
     except EOFError:
         raw = ""
     return raw in ("yes", "oui", "1", "true")
+
+
+ALL_ACTIONS = {"module", "feature_flags", "offer"}
+
+
+def get_selected_actions() -> set:
+    """Lit les actions à exécuter (plusieurs choix possibles).
+    Dashboard (checkbox_group) : JSON ["module", "feature_flags", "offer"] sur stdin.
+    Terminal : numéros séparés par des virgules. Par défaut (vide/invalide) : les 3."""
+    if sys.stdin.isatty():
+        print("─────────────────────────────────────────────")
+        print("ACTIONS À EXÉCUTER (plusieurs choix possibles)")
+        print("─────────────────────────────────────────────")
+        print("  [1] Module à activer (Display report creator)")
+        print("  [2] Feature flag à ajouter")
+        print("  [3] Offre à zéro (Platinium)")
+        raw = input("  Numéros séparés par des virgules (défaut: 1,2,3) : ").strip()
+        print("─────────────────────────────────────────────\n")
+        mapping = {"1": "module", "2": "feature_flags", "3": "offer"}
+        chosen  = {mapping[p.strip()] for p in raw.split(",") if p.strip() in mapping}
+        return chosen or set(ALL_ACTIONS)
+
+    try:
+        raw = input().strip()
+    except EOFError:
+        raw = ""
+    try:
+        chosen = {a for a in json.loads(raw) if a in ALL_ACTIONS}
+    except Exception:
+        chosen = set()
+    return chosen or set(ALL_ACTIONS)
 
 
 async def _screenshot_failure(page, identifier: str, tag: str = "failure") -> None:
@@ -322,14 +356,22 @@ async def action3_create_offer(page, company_id: str, dry_run: bool) -> tuple[st
 
 
 # ─── Orchestration ─────────────────────────────────────────────────────────────
-async def process_company(page, company_id: str, dry_run: bool) -> dict:
+ACTIONS = (
+    ("module",        "Action module (Display report creator)", action1_activate_module),
+    ("feature_flags", "Action feature flags",                    action2_feature_flags),
+    ("offer",         "Action offre à zéro",                      action3_create_offer),
+)
+
+
+async def process_company(page, company_id: str, dry_run: bool, selected_actions: set) -> dict:
     result = {"id": company_id}
 
-    for key, label, action in (
-        ("action1", "Action 1 (module)",       action1_activate_module),
-        ("action2", "Action 2 (feature flags)", action2_feature_flags),
-        ("action3", "Action 3 (offre)",         action3_create_offer),
-    ):
+    for key, label, action in ACTIONS:
+        if key not in selected_actions:
+            result[f"{key}_status"]  = "SKIP"
+            result[f"{key}_message"] = "non sélectionné"
+            continue
+
         try:
             status, message = await action(page, company_id, dry_run)
         except PlaywrightTimeout as e:
@@ -343,7 +385,9 @@ async def process_company(page, company_id: str, dry_run: bool) -> dict:
         result[f"{key}_message"] = message
         print(f"[{company_id}] {label} — {status}{' (' + message + ')' if message else ''}")
 
-    result["overall_status"] = "OK" if all(result[f"action{i}_status"] == "OK" for i in (1, 2, 3)) else "KO"
+    result["overall_status"] = "OK" if all(
+        result[f"{key}_status"] == "OK" for key in selected_actions
+    ) else "KO"
     return result
 
 
@@ -352,6 +396,9 @@ async def main():
 
     dry_run = get_dry_run()
     print(f"DRY_RUN = {dry_run}\n")
+
+    selected_actions = get_selected_actions()
+    print(f"Actions sélectionnées : {', '.join(sorted(selected_actions))}\n")
 
     print("Chargement du CSV...")
     df = pd.read_csv(DATA_SOURCE, dtype=str)
@@ -379,7 +426,7 @@ async def main():
         for _, row in df.iterrows():
             company_id = str(row["id"]).strip()
             print(f"\n→ Traitement {company_id}")
-            result = await process_company(page, company_id, dry_run)
+            result = await process_company(page, company_id, dry_run, selected_actions)
             results.append(result)
             await asyncio.sleep(1.0)
 
@@ -389,9 +436,9 @@ async def main():
     with open(LOG_FILE, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=[
             "id",
-            "action1_status", "action1_message",
-            "action2_status", "action2_message",
-            "action3_status", "action3_message",
+            "module_status", "module_message",
+            "feature_flags_status", "feature_flags_message",
+            "offer_status", "offer_message",
             "overall_status",
         ])
         writer.writeheader()

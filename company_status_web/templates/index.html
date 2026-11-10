@@ -99,6 +99,17 @@
           {% endfor %}
         </div>
       </div>
+
+      <div class="mb-3" id="scrapProdGroup">
+        <label class="form-label fw-semibold">Connexion Production</label>
+        <div class="form-text mb-2">
+          Soit upload d'un <code>session.json</code>, soit identifiants email + mot de passe
+          (connexion automatique, sans MFA) — un seul des deux suffit.
+        </div>
+        <input class="form-control mb-2" type="file" name="scrap_prod_session" accept=".json">
+        <input class="form-control mb-2" type="email" name="scrap_login" placeholder="email">
+        <input class="form-control" type="password" name="scrap_password" placeholder="mot de passe">
+      </div>
     </div>
 
     <div class="mb-3" id="prodSessionGroup">
@@ -127,8 +138,9 @@
     document.getElementById('scrapbotFields').classList.toggle('d-none', bot !== 'scrapbot');
     document.getElementById('companyStatusAlert').classList.toggle('d-none', bot !== 'company_status');
     document.getElementById('scrapbotAlert').classList.toggle('d-none', bot !== 'scrapbot');
-    // ScrapBot = toujours Production, pas de case Sandbox à afficher
-    document.getElementById('prodSessionGroup').classList.remove('d-none');
+    // ScrapBot a son propre bloc de connexion Production (scrapProdGroup) — pas de
+    // Sandbox pour ce bot, et le bloc prodSessionGroup appartient à CompanyStatusBot.
+    document.getElementById('prodSessionGroup').classList.toggle('d-none', bot === 'scrapbot');
     if (bot === 'scrapbot') {
       document.getElementById('sandboxGroup').classList.add('d-none');
     } else {

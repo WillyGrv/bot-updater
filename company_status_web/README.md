@@ -81,7 +81,10 @@ conteneur redémarre). C'est normal.
 **ScrapBot :**
 3. Colle les IDs de comptes à scraper (un par ligne, ou séparés par des virgules).
 4. Coche les données à extraire (Company Ref, SIRET, email, adresse, etc.).
-5. Upload le `session.json` Production (seul environnement supporté par ce bot).
+5. Connexion Production (un seul des deux suffit) :
+   - upload du `session.json`, **ou**
+   - identifiants email + mot de passe (connexion automatique, sans MFA — seul
+     environnement supporté par ce bot, pas de Sandbox).
 6. Clique sur Lancer, suis le journal en direct, télécharge le CSV de résultats à la fin.
 
 ## Lancer en local (test avant déploiement)

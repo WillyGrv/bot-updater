@@ -186,18 +186,29 @@ def run_scrapbot():
     if not target_keys or not any(k in SCRAP_TARGETS for k in target_keys):
         return jsonify({"error": "Choisis au moins une donnée à scraper."}), 400
 
-    prod_storage_state, err = _read_prod_session()
-    if err:
-        return err
-    if not prod_storage_state:
-        return jsonify({"error": "session.json Production requis pour ScrapBot."}), 400
+    prod_storage_state = None
+    prod_file = request.files.get("scrap_prod_session")
+    if prod_file and prod_file.filename:
+        try:
+            prod_storage_state = json.load(prod_file.stream)
+        except Exception:
+            return jsonify({"error": "session.json Production invalide (JSON illisible)."}), 400
+
+    credentials = None
+    login    = request.form.get("scrap_login", "").strip()
+    password = request.form.get("scrap_password", "").strip()
+    if login and password:
+        credentials = (login, password)
+
+    if not prod_storage_state and not credentials:
+        return jsonify({"error": "Fournis un session.json Production ou des identifiants email + mot de passe."}), 400
 
     def worker(job_id):
         def log(line: str) -> None:
             JOBS[job_id]["log"].append(line)
         try:
             results, fieldnames = asyncio.run(run_scrapbot_job(
-                company_ids, target_keys, prod_storage_state, log,
+                company_ids, target_keys, prod_storage_state, credentials, log,
             ))
             JOBS[job_id]["results"]    = results
             JOBS[job_id]["fieldnames"] = fieldnames

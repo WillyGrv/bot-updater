@@ -10,7 +10,10 @@ from __future__ import annotations
 import asyncio
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
-BASE_URL = "https://admin.payplug.com/admin/companies/{id}"
+from bot import try_login
+
+BASE_URL       = "https://admin.payplug.com/admin/companies/{id}"
+PROD_LOGIN_URL = "https://admin.payplug.com/admin/login"
 
 SCRAP_TARGETS = {
     "company_ref": {
@@ -146,24 +149,46 @@ async def scrape_row(page, url: str, row_id: str, targets: list, log) -> dict:
     return result
 
 
-async def run_job(company_ids: list[str], target_keys: list[str], prod_storage_state: dict | None, log):
-    """Retourne (results, fieldnames). Résultats vides si session manquante ou
-    aucune cible valide fournie."""
-    if not prod_storage_state:
-        log("✗ session.json Production requis mais non fourni — arrêt.")
-        return [], []
-
+async def run_job(
+    company_ids: list[str],
+    target_keys: list[str],
+    prod_storage_state: dict | None,
+    credentials: tuple[str, str] | None,
+    log,
+):
+    """Retourne (results, fieldnames). Nécessite soit un session.json Production
+    déjà valide (prod_storage_state), soit des identifiants email + mot de passe
+    (credentials) pour une connexion automatique — mêmes champs que CompanyStatusBot/
+    login.py, sans MFA (pas de navigateur visible ici)."""
     targets = [SCRAP_TARGETS[k] for k in target_keys if k in SCRAP_TARGETS]
     if not targets:
         log("✗ Aucune donnée à scraper sélectionnée — arrêt.")
+        return [], []
+
+    if not prod_storage_state and not credentials:
+        log("✗ Fournis soit un session.json Production, soit des identifiants email + mot de passe — arrêt.")
         return [], []
 
     results: list[dict] = []
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(storage_state=prod_storage_state)
-        page    = await context.new_page()
+
+        if prod_storage_state:
+            context = await browser.new_context(storage_state=prod_storage_state)
+            page    = await context.new_page()
+        else:
+            context = await browser.new_context()
+            page    = await context.new_page()
+            try:
+                await page.goto(PROD_LOGIN_URL, wait_until="domcontentloaded", timeout=15000)
+            except Exception:
+                pass
+            login, password = credentials
+            if not await try_login(page, login, password, log):
+                await context.close()
+                await browser.close()
+                return [], []
 
         for company_id in company_ids:
             url = BASE_URL.format(id=company_id)

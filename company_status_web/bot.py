@@ -9,6 +9,8 @@ Adaptée de admin_payplug/company_status_updater.py, avec deux différences assu
     ce flux échouera — utiliser le script local dans ce cas, ou importer un
     sandbox_session.json déjà authentifié exporté depuis une session locale valide.
 """
+from __future__ import annotations
+
 import asyncio
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 

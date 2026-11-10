@@ -1,9 +1,16 @@
-# CompanyStatusBot — version web
+# Bots PayPlug — version web
 
-Version autonome, hébergeable gratuitement, de `admin_payplug/company_status_updater.py`.
-Permet à quelqu'un d'autre de changer le Company status d'un ou plusieurs comptes
-(Production ou Sandbox) depuis un simple formulaire web, sans avoir besoin du dashboard
-complet ni des autres bots.
+Version autonome, hébergeable gratuitement, de deux bots du dashboard. Un sélecteur en
+haut du formulaire permet de choisir lequel lancer :
+
+- **CompanyStatusBot** (`admin_payplug/company_status_updater.py`) — change le Company
+  status d'un ou plusieurs comptes (Production ou Sandbox).
+- **ScrapBot** (`admin_payplug/scrapbot.py`) — extrait un ou plusieurs champs (SIRET,
+  email, adresse, etc.) d'une liste de fiches entreprise (Production uniquement, comme
+  l'original — pas de notion de Sandbox pour ce bot).
+
+Les deux partagent le même serveur, la même authentification et le même mécanisme de
+journal en direct / téléchargement CSV.
 
 ## ⚠️ Limitation importante — Sandbox
 
@@ -61,12 +68,21 @@ conteneur redémarre). C'est normal.
 ## Utilisation
 
 1. Ouvre l'URL, entre le login/mot de passe (Basic Auth).
-2. Choisis l'environnement (Production / Sandbox) et le statut cible.
-3. Colle les IDs de comptes (un par ligne, ou séparés par des virgules).
-4. Fournis la session nécessaire :
+2. Choisis le **bot** en haut du formulaire (CompanyStatusBot ou ScrapBot).
+
+**CompanyStatusBot :**
+3. Choisis l'environnement (Production / Sandbox) et le statut cible.
+4. Colle les IDs de comptes (un par ligne, ou séparés par des virgules).
+5. Fournis la session nécessaire :
    - Production : upload du `session.json`.
    - Sandbox : identifiants email+mdp, ou upload d'un `sandbox_session.json`.
-5. Clique sur Lancer, suis le journal en direct, télécharge le CSV de résultats à la fin.
+6. Clique sur Lancer, suis le journal en direct, télécharge le CSV de résultats à la fin.
+
+**ScrapBot :**
+3. Colle les IDs de comptes à scraper (un par ligne, ou séparés par des virgules).
+4. Coche les données à extraire (Company Ref, SIRET, email, adresse, etc.).
+5. Upload le `session.json` Production (seul environnement supporté par ce bot).
+6. Clique sur Lancer, suis le journal en direct, télécharge le CSV de résultats à la fin.
 
 ## Lancer en local (test avant déploiement)
 

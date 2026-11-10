@@ -1,5 +1,9 @@
 """
-CompanyStatusBot — serveur web minimal (sans le reste du dashboard/bots).
+Bots PayPlug — serveur web minimal (sans le reste du dashboard).
+
+Deux bots disponibles, choisis via le champ "bot" du formulaire :
+  - company_status : change le Company status d'une liste de comptes (Prod/Sandbox).
+  - scrapbot        : extrait des champs d'une liste de fiches entreprise (Prod uniquement).
 
 Protégé par Basic Auth (APP_USERNAME / APP_PASSWORD, variables d'environnement —
 APP_PASSWORD est obligatoire, l'app refuse de servir des réponses sans elle).
@@ -10,10 +14,12 @@ Routes :
   GET  /status/<id>  journal + état du job (polling JSON)
   GET  /download/<id> CSV de résultats
 
-Limitation assumée : en Sandbox, pas de SSO Okta / MFA possible ici (pas de
-navigateur visible) — connexion par identifiants email+mdp (sans MFA) ou import
-direct d'un sandbox_session.json déjà authentifié. Pour un compte avec MFA
-obligatoire, utiliser le script local (admin_payplug/company_status_updater.py).
+Limitation assumée (company_status, Sandbox uniquement) : pas de SSO Okta / MFA
+possible ici (pas de navigateur visible) — connexion par identifiants email+mdp
+(sans MFA) ou import direct d'un sandbox_session.json déjà authentifié. Pour un
+compte avec MFA obligatoire, utiliser le script local
+(admin_payplug/company_status_updater.py). ScrapBot n'a pas cette limitation : il
+ne fonctionne qu'en Production, avec session.json comme l'original.
 """
 import asyncio
 import csv
@@ -26,7 +32,8 @@ import uuid
 
 from flask import Flask, Response, jsonify, render_template, request
 
-from bot import ENVIRONMENTS, STATUS_OPTIONS, run_job
+from bot import ENVIRONMENTS, STATUS_OPTIONS, run_job as run_company_status_job
+from scrapbot import SCRAP_TARGETS, run_job as run_scrapbot_job
 
 app = Flask(__name__)
 
@@ -80,13 +87,41 @@ def index():
     return render_template(
         "index.html",
         status_options=STATUS_OPTIONS,
+        scrap_targets=SCRAP_TARGETS,
         has_cached_sandbox=os.path.exists(SANDBOX_SESSION_FILE),
     )
+
+
+def _read_prod_session():
+    """Lit le fichier session.json Production uploadé, si présent. Retourne
+    (storage_state, error_response) — error_response est None si tout va bien."""
+    prod_file = request.files.get("prod_session")
+    if prod_file and prod_file.filename:
+        try:
+            return json.load(prod_file.stream), None
+        except Exception:
+            return None, (jsonify({"error": "session.json Production invalide (JSON illisible)."}), 400)
+    return None, None
+
+
+def _start_job(worker) -> str:
+    job_id = str(uuid.uuid4())[:8]
+    JOBS[job_id] = {"log": [], "done": False, "results": None, "error": None, "fieldnames": None}
+    threading.Thread(target=worker, args=(job_id,), daemon=True).start()
+    return job_id
 
 
 @app.route("/run", methods=["POST"])
 @requires_auth
 def run():
+    bot_choice = request.form.get("bot", "company_status")
+
+    if bot_choice == "scrapbot":
+        return run_scrapbot()
+    return run_company_status()
+
+
+def run_company_status():
     environment  = request.form.get("environment", "prod")
     status_value = request.form.get("status", "2")
     raw_ids      = request.form.get("ids", "")
@@ -105,13 +140,9 @@ def run():
     if login and password:
         credentials = (login, password)
 
-    prod_storage_state = None
-    prod_file = request.files.get("prod_session")
-    if prod_file and prod_file.filename:
-        try:
-            prod_storage_state = json.load(prod_file.stream)
-        except Exception:
-            return jsonify({"error": "session.json Production invalide (JSON illisible)."}), 400
+    prod_storage_state, err = _read_prod_session()
+    if err:
+        return err
 
     sandbox_storage_state = None
     sandbox_file = request.files.get("sandbox_session")
@@ -123,19 +154,16 @@ def run():
     elif environment == "sandbox":
         sandbox_storage_state = load_cached_sandbox_session()
 
-    job_id = str(uuid.uuid4())[:8]
-    JOBS[job_id] = {"log": [], "done": False, "results": None, "error": None}
-
-    def log(line: str) -> None:
-        JOBS[job_id]["log"].append(line)
-
-    def worker():
+    def worker(job_id):
+        def log(line: str) -> None:
+            JOBS[job_id]["log"].append(line)
         try:
-            results, new_sandbox_state = asyncio.run(run_job(
+            results, new_sandbox_state = asyncio.run(run_company_status_job(
                 environment, status_value, company_ids, credentials,
                 sandbox_storage_state, prod_storage_state, log,
             ))
-            JOBS[job_id]["results"] = results
+            JOBS[job_id]["results"]    = results
+            JOBS[job_id]["fieldnames"] = ["id", "status_cible", "result", "message"]
             if new_sandbox_state:
                 save_sandbox_session(new_sandbox_state)
             if not results:
@@ -145,8 +173,42 @@ def run():
         finally:
             JOBS[job_id]["done"] = True
 
-    threading.Thread(target=worker, daemon=True).start()
-    return jsonify({"job_id": job_id})
+    return jsonify({"job_id": _start_job(worker)})
+
+
+def run_scrapbot():
+    raw_ids     = request.form.get("scrap_ids", "")
+    company_ids = [x.strip() for x in raw_ids.replace(",", "\n").splitlines() if x.strip()]
+    target_keys = request.form.getlist("targets")
+
+    if not company_ids:
+        return jsonify({"error": "Aucun ID fourni."}), 400
+    if not target_keys or not any(k in SCRAP_TARGETS for k in target_keys):
+        return jsonify({"error": "Choisis au moins une donnée à scraper."}), 400
+
+    prod_storage_state, err = _read_prod_session()
+    if err:
+        return err
+    if not prod_storage_state:
+        return jsonify({"error": "session.json Production requis pour ScrapBot."}), 400
+
+    def worker(job_id):
+        def log(line: str) -> None:
+            JOBS[job_id]["log"].append(line)
+        try:
+            results, fieldnames = asyncio.run(run_scrapbot_job(
+                company_ids, target_keys, prod_storage_state, log,
+            ))
+            JOBS[job_id]["results"]    = results
+            JOBS[job_id]["fieldnames"] = fieldnames
+            if not results:
+                JOBS[job_id]["error"] = "Aucun résultat — voir le journal."
+        except Exception as e:
+            JOBS[job_id]["error"] = str(e)
+        finally:
+            JOBS[job_id]["done"] = True
+
+    return jsonify({"job_id": _start_job(worker)})
 
 
 @app.route("/status/<job_id>")
@@ -171,14 +233,14 @@ def download(job_id):
         return Response("Aucun résultat disponible.", 404)
 
     buf    = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=["id", "status_cible", "result", "message"])
+    writer = csv.DictWriter(buf, fieldnames=job["fieldnames"])
     writer.writeheader()
     writer.writerows(job["results"])
 
     return Response(
         buf.getvalue(),
         mimetype="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=company_status_{job_id}.csv"},
+        headers={"Content-Disposition": f"attachment; filename=resultats_{job_id}.csv"},
     )
 
 

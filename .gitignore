@@ -5,6 +5,7 @@ venv/
 # ── Sessions Playwright (contiennent des cookies de connexion) ───────────────
 **/session.json
 **/session_owner.json
+**/sandbox_session.json
 
 # ── Identifiants de connexion enregistrés (login + mot de passe en clair) ────
 **/credentials.json

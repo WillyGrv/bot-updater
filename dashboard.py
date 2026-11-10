@@ -44,6 +44,45 @@ BOTS = [
                 ],
             },
             {
+                "file":        "company_status_updater.py",
+                "name":        "CompanyStatusBot",
+                "section":     "secondaire",
+                "subtitle":    "Mettre à jour le Company status d'un ou plusieurs comptes",
+                "description": "Pour chaque ID du CSV, ouvre la fiche (Prod ou Sandbox), clique sur 'Éditer', sélectionne le Company status choisi et enregistre. En Sandbox, la session Okta est sauvegardée (sandbox_session.json) et réutilisée tant qu'elle reste active — sinon un navigateur s'ouvre et attend une confirmation explicite (bouton Oui/Non) une fois la connexion faite. session.json (Prod) n'est pas utilisé en Sandbox.",
+                "inputs":      ["data.csv (colonne : id)", "session.json (utilisé uniquement en Production)"],
+                "outputs":     ["results/results_company_status_XXXXXX.csv"],
+                "interactive": True,
+                "params": [
+                    {
+                        "id":      "environment",
+                        "type":    "radio",
+                        "label":   "Environnement",
+                        "default": "prod",
+                        "options": [
+                            {"value": "prod",    "label": "Production — admin.payplug.com (session habituelle)"},
+                            {"value": "sandbox", "label": "Sandbox — admin-qa.payplug.com (connexion SSO Okta demandée)"},
+                        ],
+                    },
+                    {
+                        "id":      "status",
+                        "type":    "radio",
+                        "label":   "Company status cible",
+                        "default": "2",
+                        "options": [
+                            {"value": "2", "label": "Enregistré"},
+                            {"value": "5", "label": "Bloqué"},
+                            {"value": "6", "label": "Désactivé"},
+                        ],
+                    },
+                    {
+                        "id":      "credentials",
+                        "type":    "credentials",
+                        "label":   "Identifiants Sandbox (optionnel — email + mot de passe, sans Okta)",
+                        "show_if": {"param": "environment", "value": "sandbox"},
+                    },
+                ],
+            },
+            {
                 "file":        "scrapbot.py",
                 "name":        "ScrapBot",
                 "section":     "principale",

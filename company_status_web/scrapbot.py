@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
-from bot import try_login
+from bot import emit_screenshot, try_login
 
 BASE_URL       = "https://admin.payplug.com/admin/companies/{id}"
 PROD_LOGIN_URL = "https://admin.payplug.com/admin/login"
@@ -140,11 +140,13 @@ async def scrape_row(page, url: str, row_id: str, targets: list, log) -> dict:
     except PlaywrightTimeout as e:
         result["status"]  = "ERREUR_TIMEOUT"
         result["message"] = str(e)[:150]
-        log(f"✗ [{row_id}] Timeout : {str(e)[:120]}")
+        log(f"✗ [{row_id}] Timeout : {str(e)[:120]} — URL actuelle : {page.url}")
+        await emit_screenshot(page, log)
     except Exception as e:
         result["status"]  = "ERREUR"
         result["message"] = str(e)[:150]
-        log(f"✗ [{row_id}] {str(e)[:120]}")
+        log(f"✗ [{row_id}] {str(e)[:120]} — URL actuelle : {page.url}")
+        await emit_screenshot(page, log)
 
     return result
 
@@ -180,10 +182,11 @@ async def run_job(
         else:
             context = await browser.new_context()
             page    = await context.new_page()
+            log(f"→ Ouverture de {PROD_LOGIN_URL}")
             try:
                 await page.goto(PROD_LOGIN_URL, wait_until="domcontentloaded", timeout=15000)
-            except Exception:
-                pass
+            except Exception as e:
+                log(f"⚠ Navigation vers la page de login échouée : {str(e)[:120]}")
             login, password = credentials
             if not await try_login(page, login, password, log):
                 await context.close()
@@ -192,7 +195,7 @@ async def run_job(
 
         for company_id in company_ids:
             url = BASE_URL.format(id=company_id)
-            log(f"→ Scraping {company_id}")
+            log(f"→ Scraping {company_id} — {url}")
             result = await scrape_row(page, url, company_id, targets, log)
             results.append(result)
             await asyncio.sleep(1.0)

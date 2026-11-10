@@ -12,6 +12,7 @@ Adaptée de admin_payplug/company_status_updater.py, avec deux différences assu
 from __future__ import annotations
 
 import asyncio
+import base64
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
 ENVIRONMENTS = {
@@ -42,8 +43,20 @@ SEL_LOGIN_PASSWORD = 'input[name="password"]'
 SEL_LOGIN_SUBMIT   = 'input[type="submit"][name="admin_login"]'
 
 
+async def emit_screenshot(page, log) -> None:
+    """Capture l'écran actuel de la page headless et l'envoie dans le journal via un
+    marqueur que le frontend (templates/index.html) détecte pour afficher un bouton
+    « Voir la capture d'écran » — seul moyen de voir ce qui se passe, vu qu'il n'y a
+    pas de navigateur visible côté serveur."""
+    try:
+        png = await page.screenshot(full_page=True)
+        log("##SCREENSHOT##" + base64.b64encode(png).decode("ascii"))
+    except Exception as e:
+        log(f"  ⚠ Capture d'écran impossible : {str(e)[:100]}")
+
+
 async def try_login(page, login: str, password: str, log) -> bool:
-    log("Tentative de connexion email + mot de passe...")
+    log(f"Tentative de connexion email + mot de passe sur {page.url} ...")
     try:
         await page.fill(SEL_LOGIN_EMAIL, login, timeout=8000)
         await page.fill(SEL_LOGIN_PASSWORD, password, timeout=8000)
@@ -52,8 +65,11 @@ async def try_login(page, login: str, password: str, log) -> bool:
         log("✓ Connexion réussie")
         return True
     except Exception as e:
-        log(f"✗ Connexion impossible ({str(e)[:150]}) — si ce compte impose une MFA/Okta, "
-            f"ce flux web ne peut pas aboutir : utilise le script local dans ce cas.")
+        log(f"✗ Connexion impossible ({str(e)[:150]}) — URL actuelle : {page.url}")
+        log("  Si ce compte impose une MFA/Okta, ou si l'IP de ce serveur est bloquée/"
+            "challengée par le WAF, ce flux web ne peut pas aboutir : utilise le script local "
+            "dans ce cas. Vérifie la capture d'écran ci-dessous pour comprendre où ça bloque.")
+        await emit_screenshot(page, log)
         return False
 
 
@@ -97,12 +113,14 @@ async def process_company(page, company_id: str, base_url: str, status_value: st
     except PlaywrightTimeout as e:
         result["result"]  = "ERREUR_TIMEOUT"
         result["message"] = str(e)[:150]
-        log(f"✗ [{company_id}] Timeout : {str(e)[:120]}")
+        log(f"✗ [{company_id}] Timeout : {str(e)[:120]} — URL actuelle : {page.url}")
+        await emit_screenshot(page, log)
 
     except Exception as e:
         result["result"]  = "ERREUR"
         result["message"] = str(e)[:150]
-        log(f"✗ [{company_id}] {str(e)[:120]}")
+        log(f"✗ [{company_id}] {str(e)[:120]} — URL actuelle : {page.url}")
+        await emit_screenshot(page, log)
 
     return result
 
@@ -156,10 +174,11 @@ async def run_job(
                     return [], None
 
                 login, password = credentials
+                log(f"→ Ouverture de {env_cfg['login_url']}")
                 try:
                     await page.goto(env_cfg["login_url"], wait_until="domcontentloaded", timeout=15000)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log(f"⚠ Navigation vers la page de login échouée : {str(e)[:120]}")
                 if not await try_login(page, login, password, log):
                     await context.close()
                     await browser.close()
@@ -175,7 +194,7 @@ async def run_job(
             page    = await context.new_page()
 
         for company_id in company_ids:
-            log(f"→ Traitement {company_id}")
+            log(f"→ Traitement {company_id} — {env_cfg['base_url'].format(id=company_id)}")
             result = await process_company(page, company_id, env_cfg["base_url"], status_value, status_label, log)
             results.append(result)
             await asyncio.sleep(1.0)
